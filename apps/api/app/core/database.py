@@ -1,5 +1,7 @@
-"""Database configuration and session management."""
+"""Database configuration and session management (REL-001/REL-002/REL-008)."""
 
+import logging
+import sys
 from collections.abc import Generator
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -8,8 +10,14 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 
 class Settings(BaseSettings):
-    """Application settings with database configuration."""
+    """Application settings with database configuration.
 
+    Production rules (REL-001/REL-002): every secret comes from the environment;
+    `secret_key` has no usable default — the app refuses to start with the
+    development placeholder when APP_ENV=production.
+    """
+
+    app_env: str = "development"
     database_url: str = "postgresql+psycopg://tabbymichael@localhost:5432/chess"
     secret_key: str = "change-me-in-development-only"
     cookie_secure: bool = False
@@ -21,11 +29,23 @@ class Settings(BaseSettings):
     stockfish_path: str = ""
     stockfish_depth_limit: int = 15
     stockfish_time_limit_ms: int = 1000
+    log_level: str = "INFO"
 
     model_config = SettingsConfigDict(env_file=".env")
 
 
 settings = Settings()
+
+if settings.app_env == "production" and settings.secret_key == "change-me-in-development-only":
+    raise RuntimeError("REFUSE TO START: set a unique SECRET_KEY in production (REL-002).")
+
+# Structured logging (REL-008): single-line timestamped records to stdout.
+logging.basicConfig(
+    stream=sys.stdout,
+    level=getattr(logging, settings.log_level.upper(), logging.INFO),
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+logger = logging.getLogger("chess-engine-api")
 
 
 class Base(DeclarativeBase):

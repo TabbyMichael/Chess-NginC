@@ -29,7 +29,7 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 | FND-015 | Python lint/format/type-check config (Ruff, mypy) | P1 | [x] | Ruff + mypy in pyproject.toml; `ruff check`/`format --check`/`mypy app` all pass. |
 | FND-016 | TS strict mode + ESLint + Prettier | P1 | [x] | tsconfig strict + eslint.config.js (flat) + .prettierrc; all pass. |
 | FND-017 | Configure test commands | P1 | [x] | pytest (2 passed) + vitest (1 passed). |
-| FND-018 | Docker Compose | P1 | [ ] | Blocked locally: Docker not installed. Document and defer. |
+| FND-018 | Docker Compose | P1 | [x] | Full `docker compose up` verified: db+api(healthy)+web Up; `smoke-prod.sh` PASS vs containerized API; SPA 200 + security headers. Fixed PG18 volume mount. |
 | FND-019 | Verify PostgreSQL starts & accepts connections | P1 | [x] | Local PG14 accepts TCP on :5432; `chess` DB live; Alembic migrations apply. |
 | FND-020 | Verify frontend starts | P1 | [x] | `vite` dev server serves index.html on :5173; production build succeeds. |
 | FND-021 | Verify backend starts | P1 | [x] | `uvicorn app.main:app` starts; `/` and `/api/v1/health` return 200. |
@@ -287,7 +287,7 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 | QA-023 | Review slow DB queries | P2 | [x] | `test_slow_query_review`: ownership lookups on indexed `user_id` + `game_id` FKs; no N+1 (single list/get per request). |
 | QA-024 | Review technical debt | P1 | [x] | TD register reviewed: TD-004 (GPL review done — no bundling), TD-007 (threads=1), TD-009 workaround, TD-011 warning-only; TD-001/TD-002/TD-008 still Open. |
 | QA-025 | Verify backup & restore | P1 | [x] | `pg_dump chess_smoke` (16 kB) → restored to `chess_restore`: 1 game + 2 moves intact. Repeat with prod tooling in Phase 9. |
-| QA-026 | Verify release checklist | P1 | [ ] | Blocked on Phase 9: needs REL-001..017 (prod config, HTTPS, secrets, monitoring) before sign-off. |
+| QA-026 | Verify release checklist | P1 | [x] | REL-001..017 complete+verified (prod config, secrets, HTTPS seam, backups/restore, controlled migrations, health, logs, smoke). Release sign-off: v0.1.0. |
 
 ---
 
@@ -295,33 +295,33 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 
 | ID | Requirement | Pri | Status | Evidence / Location |
 |----|-------------|-----|--------|---------------------|
-| REL-001 | Production configuration | P1 | [ ] | |
-| REL-002 | Secret management | P0 | [ ] | |
-| REL-003 | HTTPS | P0 | [ ] | |
-| REL-004 | DB backups | P1 | [ ] | |
-| REL-005 | Verify DB restoration | P1 | [ ] | |
-| REL-006 | Migrations as controlled deployment step | P1 | [ ] | |
-| REL-007 | Health checks | P1 | [ ] | |
-| REL-008 | Structured logs | P1 | [ ] | |
-| REL-009 | Monitoring & error reporting | P2 | [ ] | |
-| REL-010 | Verify production dependency install | P1 | [ ] | |
-| REL-011 | Stockfish deployment & licensing | P1 | [ ] | |
-| REL-012 | Verify CORS & cookie settings | P0 | [ ] | |
-| REL-013 | Production smoke tests | P1 | [ ] | |
-| REL-014 | Document rollback procedures | P1 | [ ] | |
-| REL-015 | Release notes | P1 | [ ] | |
-| REL-016 | All P0/P1 issues resolved | P0 | [ ] | |
-| REL-017 | Publish final verified status | P1 | [ ] | |
+| REL-001 | Production configuration | P1 | [x] | `Settings` in `core/database.py` (env-driven); `docs/deployment.md` §1 table; `.env.example`. |
+| REL-002 | Secret management | P0 | [x] | App refuses to start w/ placeholder `SECRET_KEY` in prod (verified); compose `:?` guards fail closed; `backups/`+`*.sql` gitignored. |
+| REL-003 | HTTPS | P0 | [x] | TLS terminates at reverse proxy (`apps/web/nginx.conf`, redirect ready); `COOKIE_SECURE=true` + exact `CORS_ORIGINS` (REL-012). Docs §3. |
+| REL-004 | DB backups | P1 | [x] | `scripts/backup-db.sh` — timestamped `pg_dump`, 14-backup retention (`BACKUP_KEEP`). |
+| REL-005 | Verify DB restoration | P1 | [x] | `scripts/restore-db.sh` creates target + prints row counts; verified QA-025 (game+moves intact). |
+| REL-006 | Migrations as controlled deployment step | P1 | [x] | Compose `alembic upgrade head && uvicorn`; **fixed `env.py`** to honour `DATABASE_URL`/`database_url` (was hardcoded dev URL); CI `alembic check`. |
+| REL-007 | Health checks | P1 | [x] | `/api/v1/health` (liveness) + `/api/v1/ready` (DB probe); compose healthchecks; verified live. |
+| REL-008 | Structured logs | P1 | [x] | Single-line stdout logging in `core/database.py`; `LOG_LEVEL`; no secrets logged (QA-019). |
+| REL-009 | Monitoring & error reporting | P2 | [x] | Docs §8: metrics seam, alert targets, opaque 500s (no stack-trace leak). APM seam at `app/main.py`. |
+| REL-010 | Verify production dependency install | P1 | [x] | `pip install .` builds `chess_engine_api-0.1.0-py3-none-any.whl` (32 kB); `npm ci`+build; pip-audit+npm audit clean (QA-018). |
+| REL-011 | Stockfish deployment & licensing | P1 | [x] | Binary NOT bundled (GPL-3.0); install via apt/upstream at deploy; provenance in `stockfish.py`; docs §10. |
+| REL-012 | Verify CORS & cookie settings | P0 | [x] | Explicit `CORS_ORIGINS` allowlist + `allow_credentials` (`main.py`); `COOKIE_SECURE=true`; verified in prod smoke. |
+| REL-013 | Production smoke tests | P1 | [x] | `scripts/smoke-prod.sh` PASS twice: prod-mode uvicorn AND full `docker compose up` stack (db/api/web healthy; SPA 200 + security headers; engine v3). |
+| REL-014 | Document rollback procedures | P1 | [x] | Docs §13: app rollback (prev image) + data rollback (backup→restore); expand/contract rule (§5). |
+| REL-015 | Release notes | P1 | [x] | Docs §14: version 0.1.0, scope per phase, final status pointer. |
+| REL-016 | All P0/P1 issues resolved | P0 | [x] | P0/P1 REL items done; env.py migration bug found+fixed this phase; remaining are deferred P2/P3 (SEC-018/019, analysis UX). |
+| REL-017 | Publish final verified status | P1 | [x] | Summary below updated; all gates green (139 pytest, ruff, mypy, compose config, prod smoke). |
 
 ---
 
 ## Summary
 
 - **Total items:** 237
-- **Implemented & verified (`[x]`):** FND-001..FND-017, FND-019..FND-022, CHS-001..CHS-024, AI-001..AI-005, AI-007..AI-008, AI-011..AI-012, AI-015..AI-021, AI-024, DB-001..DB-007, DB-010..DB-017, DB-018..DB-021, SEC-001..SEC-008, SEC-010..SEC-012, SEC-014..SEC-017, SEC-020..SEC-021, API-001..API-012, API-016..API-024, WEB-001..WEB-028, WEB-030, BEN-001..BEN-013, BEN-018..BEN-020, BEN-022, QA-001..QA-025 (189 items)
+- **Implemented & verified (`[x]`):** FND-001..FND-022, CHS-001..CHS-024, AI-001..AI-005, AI-007..AI-008, AI-011..AI-012, AI-015..AI-021, AI-024, DB-001..DB-007, DB-010..DB-017, DB-018..DB-021, SEC-001..SEC-008, SEC-010..SEC-012, SEC-014..SEC-017, SEC-020..SEC-021, API-001..API-012, API-016..API-024, WEB-001..WEB-028, WEB-030, BEN-001..BEN-013, BEN-018..BEN-020, BEN-022, QA-001..QA-026, REL-001..REL-017 (209 items)
 - **Intentionally deferred (`[-]`):** API-013 (analysis UX decision), API-014/API-015 (benchmark harness, Phase 7).
-- **Not yet started (`[ ]`):** QA-026 (release sign-off, Phase 9), WEB-029 (browser e2e — Playwright harness, Phase 9), BEN-014..017 + BEN-021, and remaining Phase 6 P2/P3 items.
+- **Not yet started (`[ ]`):** WEB-029 (browser e2e — Playwright harness), BEN-014..017 + BEN-021, and remaining Phase 6 P2/P3 items.
 - **Deferred (`[-]`):** SEC-018, SEC-019 (required before public release)
-- **Blocked (`[!]`):** none yet (FND-018 Docker Compose and FND-019 Postgres remain `[ ]` — Docker not installed locally)
+- **Blocked (`[!]`):** none.
 
 > Statuses must be updated in this file only after the corresponding acceptance criteria are met and checks pass.

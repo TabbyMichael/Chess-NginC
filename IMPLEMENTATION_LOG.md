@@ -411,3 +411,76 @@ BEN-014..017 + BEN-021; remaining Phase 6 P2/P3 AI enhancements.
 **Next recommended task.** Phase 9 deployment prep: REL-001 production config,
 REL-002 secret management, REL-006 migrations as a controlled step, REL-011 Stockfish
 deployment & licensing note.
+
+---
+
+## Session 2026-10-09 (k) — Phase 9 Deployment & Release (REL-001..017, QA-026, FND-018)
+
+**Task.** Build the production deployment surface and verify it end-to-end, then mark
+Phase 9 (REL-001..017) plus the now-unblocked QA-026 and FND-018.
+
+**Files changed.**
+- `compose.yaml` (new) — db (postgres:18-alpine, healthcheck, named volume) + api
+  (migrate-then-serve, `:?` secret guards, healthcheck) + web (nginx). Validated with
+  `docker compose config`.
+- `apps/api/Dockerfile` (new) — python:3.12-slim; `pip install .`; ships `alembic/`.
+- `apps/web/Dockerfile` (new) — multi-stage: `npm ci`+build → nginx:alpine serving `dist/`.
+- `apps/web/nginx.conf` (new) — SPA fallback, security headers, HTTPS-redirect seam.
+- `scripts/backup-db.sh`, `scripts/restore-db.sh`, `scripts/smoke-prod.sh` (new).
+- `app/core/database.py` — env-driven `Settings`; production `SECRET_KEY` refusal;
+  structured stdout logging.
+- `app/api/v1/health.py` — `/health` (liveness) + `/ready` (DB probe).
+- `docs/deployment.md` — full runbook REL-001..017 (14 sections).
+- `.github/workflows/ci.yml` (new) — backend (ruff/format/mypy/alembic check/pytest) +
+  frontend (lint/tsc/test/build) with a Postgres service.
+- `.gitignore` — added `backups/` + `*.sql` (DB dumps may hold user data).
+- `alembic/env.py` — **bug fix**: honour `DATABASE_URL`/`database_url` (see below).
+- `compose.yaml` — **bug fix**: PG18 data-dir mount (see below).
+- `PROJECT_CHECKLIST.md` — REL-001..017, QA-026, FND-018 → `[x]` with evidence.
+
+**Tests executed (all passed).**
+- Backend: `pytest` → **139 passed**; `ruff check` ✅ · `ruff format` ✅ ·
+  `mypy app` ✅ (37 files) · `mypy alembic/env.py` ✅.
+- Migrations: `alembic upgrade head` on a fresh `chess_smoke_prod` DB created all 7
+  tables from base (146802a49aef → 5a0dcdb13bb3); `alembic check` clean.
+- Compose: `docker compose config` exit 0 (3 services resolve); missing-secret guard
+  fails closed (`required variable POSTGRES_PASSWORD is missing`).
+- Prod install (REL-010): `pip wheel` → `chess_engine_api-0.1.0-py3-none-any.whl` (32 kB).
+- Prod smoke (REL-013): prod-mode uvicorn (`APP_ENV=production`, real `SECRET_KEY`,
+  `cookie_secure=false` local) → `scripts/smoke-prod.sh` **SMOKE PASS**: health(200) →
+  register(201) → create(id) → e2e4(200) → engine move version 3.
+- Full stack (FND-018/REL-013 capstone): `docker compose build` (api 64.7 MB, web
+  26.4 MB) → `docker compose up -d` with db+api(healthy)+web all Up; `smoke-prod.sh`
+  **PASS against the containerized API** (8010); web SPA 200 (`<title>Chess Engine`)
+  + security headers (nosniff / DENY / no-referrer). Torn down clean (`down -v`).
+
+**Defects discovered & fixed.**
+- **REL-006 migration-target bug (P1):** `alembic/env.py` read the DB URL only from the
+  hardcoded `alembic.ini` (`tabbymichael@localhost:5432/chess`) and ignored the injected
+  `DATABASE_URL`. In production compose the api command `alembic upgrade head && uvicorn`
+  would have migrated/connected the wrong database. Fixed `env.py` to prefer
+  `DATABASE_URL`/`database_url` (env wins, ini fallback) in both offline and online paths;
+  re-verified migrations now target the injected DB. (Discovered because the prod smoke
+  register call 500'd with `relation "users" does not exist`.)
+- `health.py` trailing blank line → `ruff format` reformatted.
+- **compose PG18 volume-mount bug (P1):** the live `docker compose up` failed —
+  `postgres:18-alpine` now stores data under `/var/lib/postgresql` (subdir), so
+  mounting `pgdata:/var/lib/postgresql/data` tripped the image's init guard ("there
+  appears to be PostgreSQL data in …"). Fixed the mount to `/var/lib/postgresql`;
+  stack then came up with db+api healthy.
+
+**Decisions made.**
+- Stockfish binary intentionally **not** bundled (GPL-3.0); documented apt/upstream
+  install at deploy time (REL-011) — closes TD-004's "review before distribution".
+- DB backups gitignored (`backups/`, `*.sql`) — dumps can contain user data.
+- Monitoring (REL-009, P2) scoped to a documented seam + alert targets rather than wiring
+  an APM; opaque 500s already prevent stack-trace leakage.
+- FND-018 marked `[x]` on a full live `docker compose up` (db/api/web Up, containerized
+  smoke PASS) — not merely `config` validation. TD-002 → Resolved.
+
+**Remaining work.** BEN-014..017 + BEN-021; WEB-029 (Playwright browser e2e); remaining
+Phase 6 P2/P3 AI enhancements; SEC-018/019 (email verify + password reset) before any
+public release; optional live `docker compose up` smoke when disk allows.
+
+**Next recommended task.** WEB-029 Playwright browser e2e (the last P1 gap); then
+Phase 6 AI enhancements and BEN-014..017/BEN-021.

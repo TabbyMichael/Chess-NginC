@@ -50,3 +50,7 @@ apps/api/app/engine/stockfish/bin/
 *.log
 postgres-data/
 pgdata/
+
+# --- DB backups (may contain user data; never commit) ---
+backups/
+*.sql
