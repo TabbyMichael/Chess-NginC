@@ -148,6 +148,50 @@
 
 ---
 
+## Session 2026-10-09 (f) — Phase 3 authentication (SEC-001..008, SEC-012, SEC-014..017, SEC-020..021)
+
+**Task.** Implement registration, login, session cookies, and supporting
+security controls over the live `users`/`sessions` tables.
+
+**Files changed.**
+- `app/auth/__init__.py`, `security.py` (bcrypt + token generation),
+  `validators.py` (email normalize/validate), `service.py`
+  (register/login/authenticate/logout).
+- `app/api/v1/schemas.py` (Register/Login/User/Error schemas),
+  `deps.py` (rate limit, same-origin check, `get_current_user`),
+  `auth.py` (register/login/logout/me routes).
+- `app/main.py` — explicit CORS allowlist from settings.
+- `app/core/database.py` — auth settings (cookie flags, TTL, rate limit).
+- `pyproject.toml` + `requirements.lock` — added `bcrypt==5.0.0`.
+- `tests/test_auth.py` — 9 tests (flow, cookies, expiry, rate limit, CSRF).
+
+**Tests executed (all passed).**
+- `pytest` → **107 passed** (9 new auth tests, live Postgres).
+- `ruff check` ✅ · `ruff format --check` ✅ · `mypy app` ✅ (30 files).
+
+**Defects discovered & fixed.**
+- FastAPI `Annotated` forbids defaults inside `Cookie()` — moved `= None`
+  to parameter declarations.
+- Unvalidated `csrf_token` cookie issued but never checked — removed; CSRF
+  defense is SameSite=Lax + Origin/Referer allowlist instead.
+- Tests initially relied on ambient DB tables — fixtures now
+  create/drop schema per test like `test_game_repository.py`.
+
+**Decisions made.**
+- Sessions are opaque random tokens in DB (revocable server-side), 7-day TTL.
+- Generic "Invalid email or password" for both failure modes (no enumeration).
+- In-memory per-IP rate limiter (10/min); Redis before multi-worker prod.
+- SEC-009/010/011/013 deferred: need deployment (Phase 9) / game & engine
+  HTTP endpoints (Phase 4/6); repository ownership already enforced.
+
+**Remaining work.** Phase 4 backend API (games CRUD over GameRepository +
+auth deps), then SEC-010/011 HTTP ownership tests.
+
+**Next recommended task.** Phase 4 games API (API-005..011, API-016..019):
+POST/GET games, POST moves with rules validation + optimistic concurrency.
+
+---
+
 ## Session template (copy per session)
 
 **Task.** …

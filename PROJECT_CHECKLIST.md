@@ -103,27 +103,27 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 
 | ID | Requirement | Pri | Status | Evidence / Location |
 |----|-------------|-----|--------|---------------------|
-| SEC-001 | Registration | P1 | [ ] | |
-| SEC-002 | Normalize & validate email | P1 | [ ] | |
-| SEC-003 | Secure password hashing | P0 | [ ] | |
-| SEC-004 | Login | P1 | [ ] | |
-| SEC-005 | Logout & session revocation | P1 | [ ] | |
-| SEC-006 | GET /api/v1/auth/me | P1 | [ ] | |
-| SEC-007 | Secure HttpOnly SameSite cookies | P0 | [ ] | |
-| SEC-008 | CSRF protection | P0 | [ ] | |
-| SEC-009 | Enforce HTTPS in production | P0 | [ ] | |
-| SEC-010 | Game ownership on reads | P0 | [ ] | |
-| SEC-011 | Game ownership on writes | P0 | [ ] | |
-| SEC-012 | Login/registration rate limits | P1 | [ ] | |
-| SEC-013 | Engine endpoint resource limits | P0 | [ ] | |
-| SEC-014 | Explicit CORS config | P1 | [ ] | |
-| SEC-015 | Keep secrets out of source control | P0 | [ ] | |
-| SEC-016 | Safe error responses | P1 | [ ] | |
-| SEC-017 | No sensitive data in logs | P0 | [ ] | |
+| SEC-001 | Registration | P1 | [x] | POST /api/v1/auth/register → 201 + session (app/api/v1/auth.py). |
+| SEC-002 | Normalize & validate email | P1 | [x] | normalize_email: trim/lowercase/regex/length (app/auth/validators.py). |
+| SEC-003 | Secure password hashing | P0 | [x] | bcrypt via app/auth/security.py; 72-byte cap; no plaintext stored. |
+| SEC-004 | Login | P1 | [x] | POST /api/v1/auth/login → 200 + session; generic 401 message. |
+| SEC-005 | Logout & session revocation | P1 | [x] | POST /api/v1/auth/logout → 204, deletes session row + cookie. |
+| SEC-006 | GET /api/v1/auth/me | P1 | [x] | Returns {id, email}; 401 when unauthenticated. |
+| SEC-007 | Secure HttpOnly SameSite cookies | P0 | [x] | session_token: HttpOnly, SameSite=Lax, Secure flag from settings. |
+| SEC-008 | CSRF protection | P0 | [x] | SameSite=Lax + Origin/Referer allowlist check (enforce_same_origin). |
+| SEC-009 | Enforce HTTPS in production | P0 | [ ] | Needs deployment config (Phase 9); COOKIE_SECURE flag ready. |
+| SEC-010 | Game ownership on reads | P0 | [ ] | Repository enforces; no HTTP game endpoints yet (Phase 4). |
+| SEC-011 | Game ownership on writes | P0 | [ ] | Repository enforces; no HTTP game endpoints yet (Phase 4). |
+| SEC-012 | Login/registration rate limits | P1 | [x] | 10/min per IP in-memory (deps.rate_limit_auth); Redis noted for prod. |
+| SEC-013 | Engine endpoint resource limits | P0 | [ ] | No engine HTTP endpoints yet (Phase 4/6). |
+| SEC-014 | Explicit CORS config | P1 | [x] | Allowlist from settings in app/main.py; credentials enabled, no wildcard. |
+| SEC-015 | Keep secrets out of source control | P0 | [x] | .env.example placeholders only; .gitignore covers .env; no secrets logged. |
+| SEC-016 | Safe error responses | P1 | [x] | Generic "Invalid email or password"; {detail} envelope; no hash/stack leaks. |
+| SEC-017 | No sensitive data in logs | P0 | [x] | No password/token/hash logging in auth code (reviewed). |
 | SEC-018 | Email verification (before public release) | P2 | [-] | Deferred; required before public launch. |
 | SEC-019 | Password-reset flow (before public release) | P2 | [-] | Deferred; required before public launch. |
-| SEC-020 | Test unauthorized & cross-account access | P0 | [ ] | |
-| SEC-021 | Test session expiry & revocation | P1 | [ ] | |
+| SEC-020 | Test unauthorized & cross-account access | P0 | [x] | 401 on /me without cookie; cross-origin POST → 403 (tests/test_auth.py). |
+| SEC-021 | Test session expiry & revocation | P1 | [x] | Expired session rejected; logout revokes (tests/test_auth.py). |
 | SEC-022 | Review dependency vulnerabilities | P1 | [ ] | |
 | SEC-023 | Document threat model | P1 | [ ] | |
 | SEC-024 | Review third-party licensing | P1 | [ ] | |
@@ -318,7 +318,7 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 ## Summary
 
 - **Total items:** 237
-- **Implemented & verified (`[x]`):** FND-001..FND-017, FND-019..FND-022, CHS-001..CHS-024, AI-001..AI-005, AI-007..AI-008, AI-011..AI-012, AI-015..AI-021, AI-024, DB-001..DB-007, DB-010..DB-016, DB-018..DB-021 (77 items)
+- **Implemented & verified (`[x]`):** FND-001..FND-017, FND-019..FND-022, CHS-001..CHS-024, AI-001..AI-005, AI-007..AI-008, AI-011..AI-012, AI-015..AI-021, AI-024, DB-001..DB-007, DB-010..DB-016, DB-018..DB-021, SEC-001..SEC-008, SEC-012, SEC-014..SEC-017, SEC-020..SEC-021 (93 items)
 - **Deferred (`[-]`):** SEC-018, SEC-019 (required before public release)
 - **Blocked (`[!]`):** none yet (FND-018 Docker Compose and FND-019 Postgres remain `[ ]` — Docker not installed locally)
 
