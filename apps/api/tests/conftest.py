@@ -1,5 +1,7 @@
 """Shared test fixtures: live-Postgres DB session and authed API clients."""
 
+import os
+
 import pytest
 import sqlalchemy
 from fastapi.testclient import TestClient
@@ -12,7 +14,20 @@ from app.core.database import Base
 from app.main import app
 from app.models.session import Session as SessionModel
 
-TEST_DB_URL = "postgresql+psycopg://tabbymichael@localhost:5432/chess"
+# Honour the environment first so CI (which provisions Postgres with password
+# auth) can inject credentials; fall back to the local-dev default.
+# E.g. CI sets: database_url=postgresql+psycopg://tabbymichael:postgres@localhost:5432/chess
+TEST_DB_URL = os.environ.get(
+    "TEST_DB_URL",
+    os.environ.get(
+        "DATABASE_URL",
+        os.environ.get(
+            # codebase uses both casings; CI sets lowercase `database_url`.
+            "database_url",  # noqa: SIM112
+            "postgresql+psycopg://tabbymichael@localhost:5432/chess",
+        ),
+    ),
+)
 
 engine = create_engine(TEST_DB_URL)
 TestingSession = sessionmaker(bind=engine, autocommit=False, autoflush=False)
