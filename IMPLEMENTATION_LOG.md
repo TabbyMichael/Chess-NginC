@@ -78,6 +78,18 @@
 
 ---
 
+## Session 2026-10-09 (c) — Housekeeping pause (corrected diagnosis)
+
+**Finding.** The earlier npm "root-owned cache files" error is **not** an ownership problem. `~/.npm` and all subdirs are owned by uid 501; `find` shows zero non-user files. However, `touch ~/.npm/...` and `touch ~/...` return `Operation not permitted` while the workspace is writable → this is the assistant's workspace-write sandbox blocking `$HOME` writes. npm misattributed it.
+
+**Decision.** `sudo chown -R 501:20 ~/.npm` is **unnecessary**. The proven fix is `--cache $(mktemp -d)` for future `npm install` (deps are already installed and lockfile committed). Updated TD-009 accordingly.
+
+**Remaining work.** Optional user-side disk housekeeping (disk at 97%, ~6.4 GiB free); then resume Phase 1 (CHS-001..CHS-006).
+
+**Next recommended task.** Resume Phase 1 chess-rules domain.
+
+---
+
 ## Session template (copy per session)
 
 **Task.** …
