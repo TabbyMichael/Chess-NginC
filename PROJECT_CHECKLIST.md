@@ -112,8 +112,8 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 | SEC-007 | Secure HttpOnly SameSite cookies | P0 | [x] | session_token: HttpOnly, SameSite=Lax, Secure flag from settings. |
 | SEC-008 | CSRF protection | P0 | [x] | SameSite=Lax + Origin/Referer allowlist check (enforce_same_origin). |
 | SEC-009 | Enforce HTTPS in production | P0 | [ ] | Needs deployment config (Phase 9); COOKIE_SECURE flag ready. |
-| SEC-010 | Game ownership on reads | P0 | [ ] | Repository enforces; no HTTP game endpoints yet (Phase 4). |
-| SEC-011 | Game ownership on writes | P0 | [ ] | Repository enforces; no HTTP game endpoints yet (Phase 4). |
+| SEC-010 | Game ownership on reads | P0 | [x] | GET game(s) scoped to caller; foreign → 404 (tested). |
+| SEC-011 | Game ownership on writes | P0 | [x] | All mutations scoped to caller; foreign → 404 (tested). |
 | SEC-012 | Login/registration rate limits | P1 | [x] | 10/min per IP in-memory (deps.rate_limit_auth); Redis noted for prod. |
 | SEC-013 | Engine endpoint resource limits | P0 | [ ] | No engine HTTP endpoints yet (Phase 4/6). |
 | SEC-014 | Explicit CORS config | P1 | [x] | Allowlist from settings in app/main.py; credentials enabled, no wildcard. |
@@ -134,30 +134,30 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 
 | ID | Requirement | Pri | Status | Evidence / Location |
 |----|-------------|-----|--------|---------------------|
-| API-001 | POST /api/v1/auth/register | P1 | [ ] | |
-| API-002 | POST /api/v1/auth/login | P1 | [ ] | |
-| API-003 | POST /api/v1/auth/logout | P1 | [ ] | |
-| API-004 | GET /api/v1/auth/me | P1 | [ ] | |
-| API-005 | POST /api/v1/games | P1 | [ ] | |
-| API-006 | GET /api/v1/games | P1 | [ ] | |
-| API-007 | GET /api/v1/games/{game_id} | P1 | [ ] | |
-| API-008 | POST /api/v1/games/{game_id}/moves | P1 | [ ] | |
-| API-009 | POST /api/v1/games/{game_id}/undo | P1 | [ ] | |
-| API-010 | POST /api/v1/games/{game_id}/resign | P1 | [ ] | |
-| API-011 | POST /api/v1/games/{game_id}/draw-claim | P1 | [ ] | |
-| API-012 | POST /api/v1/games/{game_id}/engine-move | P1 | [ ] | |
-| API-013 | POST /api/v1/analysis/positions | P2 | [ ] | |
-| API-014 | POST /api/v1/benchmarks | P2 | [ ] | |
-| API-015 | GET /api/v1/benchmarks/{benchmark_id} | P2 | [ ] | |
-| API-016 | Request & response schemas | P1 | [ ] | |
-| API-017 | Consistent error schemas | P1 | [ ] | |
-| API-018 | Validate every incoming move | P0 | [ ] | |
-| API-019 | Optimistic concurrency control | P0 | [ ] | |
-| API-020 | Document HTTP status codes | P1 | [ ] | |
-| API-021 | Generate & validate OpenAPI schemas | P1 | [ ] | |
-| API-022 | Generate frontend API types | P1 | [ ] | |
-| API-023 | API integration tests | P1 | [ ] | |
-| API-024 | All protected endpoints enforce auth | P0 | [ ] | |
+| API-001 | POST /api/v1/auth/register | P1 | [x] | Phase 3: 201 + session (app/api/v1/auth.py). |
+| API-002 | POST /api/v1/auth/login | P1 | [x] | Phase 3: 200 + session, generic 401. |
+| API-003 | POST /api/v1/auth/logout | P1 | [x] | Phase 3: 204, revokes + clears cookies. |
+| API-004 | GET /api/v1/auth/me | P1 | [x] | Phase 3: {id, email}; 401 unauthenticated. |
+| API-005 | POST /api/v1/games | P1 | [x] | 201 starting-position game (app/api/v1/games.py). |
+| API-006 | GET /api/v1/games | P1 | [x] | Own games, newest first. |
+| API-007 | GET /api/v1/games/{game_id} | P1 | [x] | Game + moves; 404 if foreign (SEC-010). |
+| API-008 | POST /api/v1/games/{game_id}/moves | P1 | [x] | UCI validation + persist + version bump. |
+| API-009 | POST /api/v1/games/{game_id}/undo | P1 | [x] | Restores FEN, drops last move, bumps version. |
+| API-010 | POST /api/v1/games/{game_id}/resign | P1 | [x] | Marks resigned; 409 if finished. |
+| API-011 | POST /api/v1/games/{game_id}/draw-claim | P1 | [x] | 422 unless position supports draw. |
+| API-012 | POST /api/v1/games/{game_id}/engine-move | P1 | [x] | Computer games; budget caps; records engine_runs. |
+| API-013 | POST /api/v1/analysis/positions | P2 | [ ] | Deferred: needs analysis UX decision (Phase 5+). |
+| API-014 | POST /api/v1/benchmarks | P2 | [ ] | Deferred: needs benchmark harness (Phase 7). |
+| API-015 | GET /api/v1/benchmarks/{benchmark_id} | P2 | [ ] | Deferred: needs benchmark harness (Phase 7). |
+| API-016 | Request & response schemas | P1 | [x] | Pydantic schemas in app/api/v1/schemas.py. |
+| API-017 | Consistent error schemas | P1 | [x] | {detail} envelope via _map_errors + ErrorResponse. |
+| API-018 | Validate every incoming move | P0 | [x] | ChessRules.apply_move; 422 on invalid/illegal. |
+| API-019 | Optimistic concurrency control | P0 | [x] | expected_version → 409 on stale; versions monotonic. |
+| API-020 | Document HTTP status codes | P1 | [x] | docs/api.md status-code table + per-route codes. |
+| API-021 | Generate & validate OpenAPI schemas | P1 | [x] | /openapi.json; tests/test_openapi.py validates refs. |
+| API-022 | Generate frontend API types | P1 | [x] | apps/web/src/lib/api-types.ts + contract test. |
+| API-023 | API integration tests | P1 | [x] | tests/test_games.py (9 tests, live Postgres). |
+| API-024 | All protected endpoints enforce auth | P0 | [x] | get_current_user on all game routes; 401 tested. |
 
 ---
 
@@ -318,7 +318,7 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 ## Summary
 
 - **Total items:** 237
-- **Implemented & verified (`[x]`):** FND-001..FND-017, FND-019..FND-022, CHS-001..CHS-024, AI-001..AI-005, AI-007..AI-008, AI-011..AI-012, AI-015..AI-021, AI-024, DB-001..DB-007, DB-010..DB-016, DB-018..DB-021, SEC-001..SEC-008, SEC-012, SEC-014..SEC-017, SEC-020..SEC-021 (93 items)
+- **Implemented & verified (`[x]`):** FND-001..FND-017, FND-019..FND-022, CHS-001..CHS-024, AI-001..AI-005, AI-007..AI-008, AI-011..AI-012, AI-015..AI-021, AI-024, DB-001..DB-007, DB-010..DB-016, DB-018..DB-021, SEC-001..SEC-008, SEC-010..SEC-012, SEC-014..SEC-017, SEC-020..SEC-021, API-001..API-012, API-016..API-024 (116 items)
 - **Deferred (`[-]`):** SEC-018, SEC-019 (required before public release)
 - **Blocked (`[!]`):** none yet (FND-018 Docker Compose and FND-019 Postgres remain `[ ]` — Docker not installed locally)
 

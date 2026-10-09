@@ -192,6 +192,51 @@ POST/GET games, POST moves with rules validation + optimistic concurrency.
 
 ---
 
+## Session 2026-10-09 (g) — Phase 4 games API (API-001..012, API-016..024, SEC-010/011)
+
+**Task.** Expose games over HTTP: CRUD, moves, undo, resign, draw-claim,
+engine-move, with auth + ownership + concurrency + docs.
+
+**Files changed.**
+- `app/games/service.py` — orchestration (create/list/get/move/undo/resign/
+  draw/engine-move) with GameNotFound/StaleVersion/IllegalMove/GameFinished
+  errors mapped to 404/409/422.
+- `app/api/v1/games.py` — 8 routes (API-005..012) with response models.
+- `app/api/v1/schemas.py` — game/move/version/engine request + response types.
+- `app/main.py` — games router registered.
+- `tests/test_games.py` — 9 integration tests (flow, isolation, checkmate,
+  undo, resign, draw, engine).
+- `tests/test_openapi.py` — OpenAPI route + ref validation (API-021).
+- `tests/conftest.py` — shared db/client/authed/other fixtures.
+- `docs/api.md` — status codes + endpoint reference (API-020).
+- `apps/web/src/lib/api-types.ts` (+ contract test) — frontend types (API-022).
+
+**Tests executed (all passed).**
+- Backend: `pytest` → **117 passed** (live Postgres).
+- `ruff check` ✅ · `ruff format --check` ✅ · `mypy app` ✅ (32 files).
+- Frontend: `tsc` ✅ · `eslint` ✅ · `prettier` ✅ · `vitest` 3 passed ·
+  `vite build` ✅.
+
+**Defects discovered & fixed.**
+- Starlette deprecated `HTTP_422_UNPROCESSABLE_ENTITY` → use
+  `HTTP_422_UNPROCESSABLE_CONTENT`.
+- Autouse table-wipe fixture broke `test_game_repository.py` (ran before its
+  own schema setup) → tolerate missing tables with rollback.
+
+**Decisions made.**
+- API-013/014/015 deferred with reasons (analysis UX undecided; benchmark
+  harness is Phase 7).
+- Versions only move forward (undo bumps, never rewinds) — simpler clients.
+- Terminal status derived server-side after every move (no client claims).
+
+**Remaining work.** Phase 5 frontend (board, game state, API client over
+these endpoints).
+
+**Next recommended task.** Phase 5 frontend: board rendering + play vs engine
+via POST moves / engine-move, using `api-types.ts`.
+
+---
+
 ## Session template (copy per session)
 
 **Task.** …

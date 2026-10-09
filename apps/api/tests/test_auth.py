@@ -4,60 +4,11 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
-import app.models  # noqa: F401  (register tables on Base.metadata)
-from app.api.v1.deps import get_db_session, reset_rate_limits
 from app.auth.validators import normalize_email
-from app.core.database import Base
-from app.main import app
 from app.models.session import Session as SessionModel
-
-TEST_DB_URL = "postgresql+psycopg://tabbymichael@localhost:5432/chess"
-
-engine = create_engine(TEST_DB_URL)
-TestingSession = sessionmaker(bind=engine, autocommit=False, autoflush=False)
-
-
-@pytest.fixture()
-def db() -> Session:
-    Base.metadata.create_all(bind=engine)
-    session = TestingSession()
-    try:
-        yield session
-    finally:
-        session.rollback()
-        session.close()
-        Base.metadata.drop_all(bind=engine)
-
-
-@pytest.fixture()
-def client(db: Session) -> TestClient:
-    reset_rate_limits()
-
-    def override_db() -> Session:
-        try:
-            yield db
-        finally:
-            pass
-
-    app.dependency_overrides[get_db_session] = override_db
-    try:
-        yield TestClient(app)
-    finally:
-        app.dependency_overrides.clear()
-
-
-@pytest.fixture(autouse=True)
-def _clean_auth_tables(db: Session) -> None:
-    db.query(SessionModel).delete()
-    db.execute(__import__("sqlalchemy").text("DELETE FROM users"))
-    db.commit()
-    yield
-    db.query(SessionModel).delete()
-    db.execute(__import__("sqlalchemy").text("DELETE FROM users"))
-    db.commit()
 
 
 def _register(
