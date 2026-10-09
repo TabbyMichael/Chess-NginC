@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     session_ttl_hours: int = 24 * 7  # 7 days
     auth_rate_limit_per_minute: int = 10
+    # Stockfish (BEN-001/002/004/006): absolute binary path, empty = PATH lookup.
+    # Never accept a path from clients; only env/config (BEN-020).
+    stockfish_path: str = ""
+    stockfish_depth_limit: int = 15
+    stockfish_time_limit_ms: int = 1000
 
     model_config = SettingsConfigDict(env_file=".env")
 

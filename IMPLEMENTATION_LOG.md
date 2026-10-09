@@ -305,3 +305,55 @@ stored position.
 
 **Next recommended task.** Phase 6 analysis/review UI (API-013 analysis endpoint + board
 annotations), or the engine evaluation pipeline in Phase 7 if analysis UX is deferred.
+
+---
+
+## Session 2026-10-09 (i) — Phase 7 Stockfish & benchmarking core (BEN-001..013, BEN-018..020, BEN-022)
+
+**Task.** Implement the chronological Step 7: Phase 7 Stockfish & Benchmarking core
+(no explicit "Step 7" label exists in docs; session (e) maps Step 2 → Phase 2, so
+Step 7 → Phase 7, the next phase after the completed Phase 5 frontend).
+
+**Files changed.**
+- `apps/api/app/engine/stockfish.py` — UCI adapter: provenance constants (BEN-001/002),
+  `StockfishConfig.bounded()` hard caps (BEN-006), `resolve_binary()`, `analyse_position()`
+  (BEN-004/005/008), `_extract_score()` normalization incl. mates (BEN-013), graceful
+  missing-binary/crash errors (BEN-007). Binary never distributed (BEN-003).
+- `apps/api/app/engine/benchmark_suite.py` — versioned `v1` suite, 12 validated FENs (BEN-009).
+- `apps/api/app/engine/benchmark.py` — `compare_position()`, `agreement_rate()`,
+  `mean_score_gap()`, `hardware_fingerprint()`, `stockfish_version_label()` (BEN-010..013).
+- `apps/api/app/models/benchmark_run.py`, `benchmark_result.py`, `models/__init__.py` —
+  persistence tables (BEN-019).
+- `apps/api/alembic/versions/5a0dcdb13bb3_benchmark_runs_and_results.py` — migration,
+  upgrade/downgrade round-trip verified.
+- `apps/api/app/core/database.py` — `STOCKFISH_PATH` / depth / time settings (BEN-002/020).
+- `apps/api/tests/test_stockfish.py` (5 tests, fake UCI script — no binary needed),
+  `apps/api/tests/test_benchmark.py` (6 tests incl. repeatability BEN-022).
+- `docs/engine-strength.md` — Stockfish source/licensing/adapter/suite/harness section (BEN-021 partial).
+- `PROJECT_CHECKLIST.md` — BEN-001..013, BEN-018..020, BEN-022 → `[x]` with evidence.
+
+**Tests executed (all passed).**
+- `.venv/bin/pytest tests/test_stockfish.py tests/test_benchmark.py` → **11 passed**.
+- `.venv/bin/pytest` (full backend) → **128 passed**.
+- `.venv/bin/ruff check app tests` ✅ · `ruff format --check app tests` ✅ · `mypy app` ✅ (37 files).
+- `alembic upgrade head` → benchmark tables created; `downgrade -1` → dropped;
+  `upgrade head` → recreated (round-trip verified on user-owned PG18 :5432).
+
+**Results.** Custom-vs-Stockfish comparisons run on identical positions with recorded
+config/hardware/move/score/depth/nodes/time; harness degrades to custom-only when no
+binary is present. No benchmark HTTP endpoints added (BEN-020: no new attack surface).
+
+**Defects discovered & fixed.**
+- Fake UCI shebang `#!/usr/bin/env python3` missing in sandbox → parametrized with
+  `sys.executable`. Ruff SIM105/contextlib, mypy `InfoDict` typing, format/line-length.
+
+**Decisions made.**
+- GPL-3.0: do not bundle the Stockfish binary; runtime discovery only (TD-004 stays Open
+  until distribution review). Threads pinned to 1 (TD-007).
+
+**Remaining work.** BEN-014..016 (head-to-head games, alternating colors, W/D/L),
+BEN-017 (rating estimate, P3), BEN-021 (benchmark user docs).
+
+**Next recommended task.** Phase 8 QA chronologically: QA-001/QA-002 backend unit+integration
+(full suite already green — record evidence), then QA-005/QA-006/QA-010 gates, QA-011..017
+security/integrity probes, QA-003/QA-007..009 frontend gates, QA-018..026 hardening.

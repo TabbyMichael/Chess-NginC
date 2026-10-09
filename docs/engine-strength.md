@@ -15,7 +15,30 @@ The custom chess engine (`app/engine/`) implements a basic search-based AI with 
 - **Correctness:** The engine only returns legal moves and correctly identifies terminal positions (checkmate, stalemate, draws).
 - **Deterministic:** With the same configuration and position, the engine returns consistent results.
 - **Safety:** Time limits and cancellation prevent runaway searches.
-- **Test Coverage:** All core functionality has unit tests (89 passing tests).
+- **Test Coverage:** All core functionality has unit tests (128 backend tests passing, incl. 11 Stockfish/benchmark tests).
+
+## Stockfish reference & benchmarking (Phase 7, BEN-001..022)
+
+- **Source:** official upstream `https://stockfishchess.org` / `https://github.com/official-stockfish/Stockfish`;
+  packaged as Ubuntu `stockfish 16-1build1` (provenance recorded in `app/engine/stockfish.py`
+  + `stockfish_version_label()`).
+- **Licensing (BEN-003):** Stockfish is GPL-3.0. The binary is **not** distributed with this repo —
+  the adapter discovers it via `STOCKFISH_PATH` or `PATH` at runtime only. Review redistribution
+  obligations (provide corresponding source + license notices) before shipping any image/installer
+  that bundles the binary.
+- **Adapter (`app/engine/stockfish.py`, BEN-004..008):** UCI via `chess.engine.SimpleEngine`,
+  hard bounds depth ≤ 15 / time ≤ 1000 ms / threads = 1 / hash ≤ 64 MB, graceful
+  `StockfishUnavailableError` / `StockfishError` handling, score normalized to centipawns
+  from the mover's perspective (mate → `20000 − 10·plies`).
+- **Suite (`app/engine/benchmark_suite.py`, BEN-009):** versioned `v1` suite, 12 validated FEN
+  positions (openings, middlegame structures, tactics, endgames).
+- **Harness (`app/engine/benchmark.py`, BEN-010..013):** `compare_position()` runs both engines on
+  identical FENs, records move/score/depth/nodes/time, `agreement_rate()` + `mean_score_gap()`
+  metrics, `hardware_fingerprint()` per run. Degrades to custom-only when no binary is present.
+- **Persistence (BEN-019):** `benchmark_runs` + `benchmark_results` tables (migration `5a0dcdb13bb3`).
+- **Repeatability (BEN-022):** custom engine deterministic per config+position (tested).
+- **Remaining:** head-to-head games with alternating colors + W/D/L (BEN-014..016), rating estimate
+  (BEN-017, P3), benchmark user docs (BEN-021).
 
 ## Limitations
 

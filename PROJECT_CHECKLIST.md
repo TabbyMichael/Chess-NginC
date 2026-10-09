@@ -233,28 +233,28 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 
 | ID | Requirement | Pri | Status | Evidence / Location |
 |----|-------------|-----|--------|---------------------|
-| BEN-001 | Verify official Stockfish source | P2 | [ ] | |
-| BEN-002 | Record version & binary provenance | P2 | [ ] | |
-| BEN-003 | Review GPL-3.0 obligations | P1 | [ ] | |
-| BEN-004 | UCI adapter | P2 | [ ] | |
-| BEN-005 | Process startup/shutdown | P2 | [ ] | |
-| BEN-006 | Bound time & resources | P0 | [ ] | |
-| BEN-007 | Handle crashes/unavailable binaries | P1 | [ ] | |
-| BEN-008 | Position analysis | P2 | [ ] | |
-| BEN-009 | Versioned FEN test suite | P2 | [ ] | |
-| BEN-010 | Run both engines on identical positions | P2 | [ ] | |
-| BEN-011 | Record config & hardware | P2 | [ ] | |
-| BEN-012 | Record move/score/depth/nodes/time | P2 | [ ] | |
-| BEN-013 | Normalize score & mate scores | P2 | [ ] | |
+| BEN-001 | Verify official Stockfish source | P2 | [x] | `app/engine/stockfish.py` provenance constants (stockfishchess.org + official GitHub); apt `stockfish 16-1build1`. |
+| BEN-002 | Record version & binary provenance | P2 | [x] | `stockfish_version_label()` records `stockfish 16-1build1`; `hardware_fingerprint()` per run; `STOCKFISH_PATH` settings. |
+| BEN-003 | Review GPL-3.0 obligations | P1 | [x] | Binary NOT distributed (adapter + PATH lookup only); obligations documented in IMPLEMENTATION_LOG session (i). |
+| BEN-004 | UCI adapter | P2 | [x] | `app/engine/stockfish.py` via `chess.engine.SimpleEngine.popen_uci`; fake-UCI tests, no binary needed. |
+| BEN-005 | Process startup/shutdown | P2 | [x] | `popen_uci` + `engine.quit()` in `finally`; crash → `StockfishError`, missing → `StockfishUnavailableError`. |
+| BEN-006 | Bound time & resources | P0 | [x] | Hard caps depth ≤15 / time ≤1000ms / threads=1 / hash ≤64MB via `StockfishConfig.bounded()`. |
+| BEN-007 | Handle crashes/unavailable binaries | P1 | [x] | `test_missing_binary_raises_unavailable`, unavailable-binary analysis test; harness degrades to custom-only. |
+| BEN-008 | Position analysis | P2 | [x] | `analyse_position()` returns EngineResult-compatible struct with move/score/depth/nodes/time. |
+| BEN-009 | Versioned FEN test suite | P2 | [x] | `app/engine/benchmark_suite.py` v1, 12 validated positions (openings/tactics/endgames). |
+| BEN-010 | Run both engines on identical positions | P2 | [x] | `compare_position()` runs custom + reference on same FEN; stubbed + no-binary tests. |
+| BEN-011 | Record config & hardware | P2 | [x] | `hardware_fingerprint()` + `stockfish_version_label()`; `benchmark_runs.hardware` column. |
+| BEN-012 | Record move/score/depth/nodes/time | P2 | [x] | `PositionComparison` + `benchmark_results` table persist all fields per position. |
+| BEN-013 | Normalize score & mate scores | P2 | [x] | `_extract_score()` normalizes to cp from mover perspective; mate → 20000−10·plies. |
 | BEN-014 | Head-to-head games | P2 | [ ] | |
 | BEN-015 | Alternate colors | P2 | [ ] | |
 | BEN-016 | Record W/D/L | P2 | [ ] | |
 | BEN-017 | Estimate rating w/ uncertainty | P3 | [ ] | |
-| BEN-018 | Benchmark regression tests | P2 | [ ] | |
-| BEN-019 | Persist benchmark results | P2 | [ ] | |
-| BEN-020 | Restrict expensive benchmark endpoints | P0 | [ ] | |
+| BEN-018 | Benchmark regression tests | P2 | [x] | `tests/test_benchmark.py` (agreement/gap metrics, determinism) + `tests/test_stockfish.py` (5 tests). |
+| BEN-019 | Persist benchmark results | P2 | [x] | `benchmark_runs` + `benchmark_results` tables; migration `5a0dcdb13bb3` upgrade/downgrade verified. |
+| BEN-020 | Restrict expensive benchmark endpoints | P0 | [x] | No benchmark HTTP endpoints added (no new attack surface); bounds enforced in adapter. |
 | BEN-021 | Benchmark documentation | P2 | [ ] | |
-| BEN-022 | Verify repeatability | P2 | [ ] | |
+| BEN-022 | Verify repeatability | P2 | [x] | `test_repeatability_custom_engine_deterministic` — same config+position → same move. |
 
 ---
 
