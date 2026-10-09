@@ -7,19 +7,38 @@ domain model (:mod:`app.games.domain`) independent of the concrete rules engine.
 import chess
 
 from app.games.domain import STARTING_FEN, Color, GameStatus, Move
-from app.games.errors import IllegalMoveError, InvalidMoveError
+from app.games.errors import IllegalMoveError, InvalidFenError, InvalidMoveError
 
 
 class ChessRules:
     """Adapter for legal move generation, validation, and status detection."""
 
     def __init__(self, fen: str | None = None) -> None:
-        self._board = chess.Board(fen if fen is not None else STARTING_FEN)
+        position = fen if fen is not None else STARTING_FEN
+        ChessRules.validate_fen(position)
+        self._board = chess.Board(position)
 
     @classmethod
     def initial_fen(cls) -> str:
         """Return the FEN of the standard starting position."""
         return STARTING_FEN
+
+    @classmethod
+    def validate_fen(cls, fen: str) -> None:
+        """Raise :class:`InvalidFenError` if ``fen`` is not a valid position."""
+        try:
+            chess.Board(fen)
+        except ValueError as exc:
+            raise InvalidFenError(fen) from exc
+
+    @classmethod
+    def is_valid_fen(cls, fen: str) -> bool:
+        """Return whether ``fen`` describes a valid chess position."""
+        try:
+            cls.validate_fen(fen)
+        except InvalidFenError:
+            return False
+        return True
 
     @property
     def fen(self) -> str:
@@ -62,8 +81,74 @@ class ChessRules:
             return GameStatus.STALEMATE
         if self._board.is_insufficient_material():
             return GameStatus.DRAW
-        # Fifty-move rule and threefold repetition are added in CHS-014/CHS-016.
+        # Fifty-move rule and threefold repetition (CHS-014).
+        if self._board.can_claim_draw():
+            return GameStatus.DRAW
         return GameStatus.ACTIVE
+
+    def replay_moves(self, ucis: list[str]) -> list[Move]:
+        """Apply a sequence of moves, returning the Move objects.
+
+        Raises :class:`InvalidMoveError` or :class:`IllegalMoveError` if any move fails.
+        """
+        moves = []
+        for uci in ucis:
+            move = self.apply_move(uci)
+            moves.append(move)
+        return moves
+
+    def undo_move(self) -> Move:
+        """Undo the last move, returning the Move that was undone.
+
+        Raises :class:`ValueError` if there are no moves to undo.
+        """
+        if not self._board.move_stack:
+            raise ValueError("No moves to undo")
+        move = self._board.pop()
+        return Move(uci=move.uci(), san=self._board.san(move))
+
+    def verify_invariants(self) -> list[str]:
+        """Return a list of invariant violations (empty if all valid).
+
+        Checks:
+        - Exactly one king per side
+        - Kings not on adjacent squares
+        - Pawns not on first/last rank
+        """
+        violations = []
+
+        # Count kings
+        white_kings = len(self._board.pieces(chess.KING, chess.WHITE))
+        black_kings = len(self._board.pieces(chess.KING, chess.BLACK))
+
+        if white_kings != 1:
+            violations.append(f"White has {white_kings} kings (expected 1)")
+        if black_kings != 1:
+            violations.append(f"Black has {black_kings} kings (expected 1)")
+
+        # Check king adjacency if both present
+        if white_kings == 1 and black_kings == 1:
+            white_king_sq = self._board.king(chess.WHITE)
+            black_king_sq = self._board.king(chess.BLACK)
+            if (
+                white_king_sq is not None
+                and black_king_sq is not None
+                and chess.square_distance(white_king_sq, black_king_sq) < 2
+            ):
+                violations.append("Kings are on adjacent or same square")
+
+        # Check pawn ranks
+        for square in self._board.pieces(chess.PAWN, chess.WHITE):
+            rank = chess.square_rank(square)
+            if rank == 7:  # White pawns on last rank
+                violations.append(f"White pawn on last rank at {chess.square_name(square)}")
+
+        for square in self._board.pieces(chess.PAWN, chess.BLACK):
+            rank = chess.square_rank(square)
+            if rank == 0:  # Black pawns on first rank
+                violations.append(f"Black pawn on first rank at {chess.square_name(square)}")
+
+        return violations
 
     def _parse_uci(self, uci: str) -> chess.Move:
         try:

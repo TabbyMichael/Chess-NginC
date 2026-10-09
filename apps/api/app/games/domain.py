@@ -54,3 +54,32 @@ class Game:
     status: GameStatus = GameStatus.ACTIVE
     fen: str = STARTING_FEN
     moves: list[Move] = field(default_factory=list)
+
+    def resign(self) -> None:
+        """Mark the game as resigned by the current player."""
+        if self.status != GameStatus.ACTIVE:
+            raise ValueError(f"Cannot resign a game in {self.status} status")
+        self.status = GameStatus.RESIGNED
+
+    def to_pgn(self) -> str:
+        """Generate PGN notation from the move history."""
+        if not self.moves:
+            return ""
+
+        # Simple PGN: just concatenate SAN moves with move numbers
+        pgn_moves = []
+        move_num = 1
+
+        i = 0
+        while i < len(self.moves):
+            # White's move
+            if i < len(self.moves):
+                pgn_moves.append(f"{move_num}. {self.moves[i].san}")
+                i += 1
+            # Black's move
+            if i < len(self.moves):
+                pgn_moves.append(self.moves[i].san)
+                i += 1
+            move_num += 1
+
+        return " ".join(pgn_moves)

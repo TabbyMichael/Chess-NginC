@@ -20,3 +20,11 @@ class IllegalMoveError(ChessRulesError):
         self.uci = uci
         self.fen = fen
         super().__init__(f"Illegal move {uci!r} in position {fen!r}")
+
+
+class InvalidFenError(ChessRulesError):
+    """A FEN string does not describe a valid chess position."""
+
+    def __init__(self, fen: str) -> None:
+        self.fen = fen
+        super().__init__(f"Invalid FEN: {fen!r}")

@@ -1,6 +1,7 @@
 """Tests for the chess domain model."""
 
 import chess
+import pytest
 
 from app.games.domain import STARTING_FEN, Color, Game, GameMode, GameStatus, Move
 
@@ -30,3 +31,46 @@ def test_move_is_frozen_and_holds_uci_and_san() -> None:
 def test_color_enum_values() -> None:
     assert Color.WHITE.value == "white"
     assert Color.BLACK.value == "black"
+
+
+def test_resign_active_game() -> None:
+    game = Game()
+    game.resign()
+    assert game.status is GameStatus.RESIGNED
+
+
+def test_resign_non_active_game_raises() -> None:
+    game = Game(status=GameStatus.CHECKMATE)
+    with pytest.raises(ValueError, match="Cannot resign a game in checkmate status"):
+        game.resign()
+
+
+def test_to_pgn_empty_game() -> None:
+    game = Game()
+    assert game.to_pgn() == ""
+
+
+def test_to_pgn_single_move() -> None:
+    game = Game()
+    game.moves.append(Move(uci="e2e4", san="e4"))
+    assert game.to_pgn() == "1. e4"
+
+
+def test_to_pgn_two_moves() -> None:
+    game = Game()
+    game.moves.append(Move(uci="e2e4", san="e4"))
+    game.moves.append(Move(uci="e7e5", san="e5"))
+    assert game.to_pgn() == "1. e4 e5"
+
+
+def test_to_pgn_multiple_moves() -> None:
+    game = Game()
+    game.moves.extend(
+        [
+            Move(uci="e2e4", san="e4"),
+            Move(uci="e7e5", san="e5"),
+            Move(uci="g1f3", san="Nf3"),
+            Move(uci="b8c6", san="Nc6"),
+        ]
+    )
+    assert game.to_pgn() == "1. e4 e5 2. Nf3 Nc6"
