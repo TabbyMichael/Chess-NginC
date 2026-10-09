@@ -6,9 +6,9 @@
 | ID | Description | Reason | Impact / Severity | Modules | Remediation | Repayment trigger | Status |
 |----|-------------|--------|-------------------|---------|-------------|-------------------|--------|
 | TD-001 | Pure-Python search will be slow at depth | Iterate quickly; python-chess for rules | Medium — limits search depth/strength | `engine/custom` | Profile; consider compiled core (C/Rust/extension) | Move latency exceeds target | Open |
-| TD-002 | Docker not installed locally | Local environment lacks Docker | Low — blocks FND-018/019 verification | infra | Install Docker or document local-Postgres path | Before CI/Compose work | Open |
+| TD-002 | Docker installed (29.8.2); compose verified end-to-end | Local env now has Docker | Low — resolved | infra | Full `docker compose up` verified (db/api/web); no further infra work | n/a | Resolved |
 | TD-003 | pnpm not installed; npm chosen | Tool availability | Low — package manager divergence from spec | web | Standardize once, then lockfile | Team/CI requires pnpm | Open |
-| TD-004 | Stockfish licensing not yet reviewed | Binary not yet distributed | Medium — GPL-3.0 obligations | engine/stockfish | BEN-003 review + SBOM | Before distributing Stockfish | Open |
+| TD-004 | Stockfish licensing reviewed; binary not bundled | GPL-3.0 would infect the service if distributed | Medium — resolved for this repo | engine/stockfish | Documented apt/upstream install at deploy (REL-011); SBOM only if ever distributing the binary | If Stockfish is ever bundled | Resolved |
 | TD-005 | Email verification & password reset deferred | Not needed for local dev | High for public release | identity | SEC-018/019 implementation | Before public registration | Deferred |
 | TD-006 | Full PGN stored/derived from moves (no cached copy) | Avoid competing representations | Low | game/history | Generate PGN from moves; add cache only if needed | Measured performance/recovery need | Accepted |
 | TD-007 | Single engine worker initially | Keep concurrency bounded | Medium under load | engine | Bounded worker pool | Concurrent demand requires it | Accepted |

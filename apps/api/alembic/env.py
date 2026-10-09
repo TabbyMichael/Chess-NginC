@@ -1,3 +1,4 @@
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool
@@ -29,6 +30,21 @@ target_metadata = Base.metadata
 # ... etc.
 
 
+def _database_url() -> str:
+    """Resolve the DB URL: env var wins, else alembic.ini (REL-001/REL-006).
+
+    Production deploys inject ``DATABASE_URL``/``database_url`` (managed Postgres,
+    the ``db`` service in compose). Migrations must target *that* database, not
+    the hardcoded dev URL in ``alembic.ini`` — otherwise the app and migrations
+    would point at different schemas. Falls back to the ini value for bare runs.
+    """
+    # Prefer an injected DSN (compose sets lowercase `database_url`; pydantic-settings
+    # is case-insensitive so `DATABASE_URL` works too). noqa: honoring the lowercase
+    # compose var is intentional (REL-001).
+    url = os.environ.get("DATABASE_URL") or os.environ.get("database_url")  # noqa: SIM112
+    return url or config.get_main_option("sqlalchemy.url") or ""
+
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
 
@@ -41,7 +57,7 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    url = config.get_main_option("sqlalchemy.url")
+    url = _database_url()
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -60,8 +76,12 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
+    # Honour injected DATABASE_URL/database_url so migrations target the
+    # deployed database (REL-006); override the ini's hardcoded dev URL.
+    section = config.get_section(config.config_ini_section, {})
+    section["sqlalchemy.url"] = _database_url()
     connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
+        section,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )

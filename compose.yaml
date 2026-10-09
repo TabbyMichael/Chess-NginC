@@ -1,0 +1,58 @@
+services:
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-chess_engine}
+      POSTGRES_USER: ${POSTGRES_USER:-chess}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # PG 18+ stores data under /var/lib/postgresql (subdir), not .../data.
+      # Mount the parent so the image's layout/upgrade path is preserved.
+      - pgdata:/var/lib/postgresql
+      - ./backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-chess} -d ${POSTGRES_DB:-chess_engine}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      database_url: postgresql+psycopg://${POSTGRES_USER:-chess}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-chess_engine}
+      secret_key: ${SECRET_KEY:?set SECRET_KEY in .env}
+      cookie_secure: ${COOKIE_SECURE:-true}
+      cors_origins: ${CORS_ORIGINS:?set CORS_ORIGINS in .env}
+      stockfish_path: ${STOCKFISH_PATH:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=5)\""]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-5173}:80"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:

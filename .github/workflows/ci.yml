@@ -1,0 +1,75 @@
+name: CI — backend & frontend gates (REL-010, QA-005..009)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: chess
+          POSTGRES_USER: tabbymichael
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tabbymichael -d chess"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend
+        run: |
+          cd apps/api
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Lint
+        run: |
+          cd apps/api
+          ruff check app tests
+          ruff format --check app tests
+      - name: Type check
+        run: |
+          cd apps/api
+          mypy app
+      - name: Migrate
+        env:
+          database_url: postgresql+psycopg://tabbymichael:postgres@localhost:5432/chess
+        run: |
+          cd apps/api
+          alembic upgrade head
+          alembic check
+      - name: Tests
+        env:
+          database_url: postgresql+psycopg://tabbymichael:postgres@localhost:5432/chess
+        run: |
+          cd apps/api
+          pytest
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install frontend
+        run: |
+          cd apps/web
+          npm ci
+      - name: Lint + types + tests + build
+        run: |
+          cd apps/web
+          npm run lint
+          npx tsc --noEmit
+          npm run test:run
+          npm run build

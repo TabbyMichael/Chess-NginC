@@ -305,3 +305,182 @@ stored position.
 
 **Next recommended task.** Phase 6 analysis/review UI (API-013 analysis endpoint + board
 annotations), or the engine evaluation pipeline in Phase 7 if analysis UX is deferred.
+
+---
+
+## Session 2026-10-09 (i) — Phase 7 Stockfish & benchmarking core (BEN-001..013, BEN-018..020, BEN-022)
+
+**Task.** Implement the chronological Step 7: Phase 7 Stockfish & Benchmarking core
+(no explicit "Step 7" label exists in docs; session (e) maps Step 2 → Phase 2, so
+Step 7 → Phase 7, the next phase after the completed Phase 5 frontend).
+
+**Files changed.**
+- `apps/api/app/engine/stockfish.py` — UCI adapter: provenance constants (BEN-001/002),
+  `StockfishConfig.bounded()` hard caps (BEN-006), `resolve_binary()`, `analyse_position()`
+  (BEN-004/005/008), `_extract_score()` normalization incl. mates (BEN-013), graceful
+  missing-binary/crash errors (BEN-007). Binary never distributed (BEN-003).
+- `apps/api/app/engine/benchmark_suite.py` — versioned `v1` suite, 12 validated FENs (BEN-009).
+- `apps/api/app/engine/benchmark.py` — `compare_position()`, `agreement_rate()`,
+  `mean_score_gap()`, `hardware_fingerprint()`, `stockfish_version_label()` (BEN-010..013).
+- `apps/api/app/models/benchmark_run.py`, `benchmark_result.py`, `models/__init__.py` —
+  persistence tables (BEN-019).
+- `apps/api/alembic/versions/5a0dcdb13bb3_benchmark_runs_and_results.py` — migration,
+  upgrade/downgrade round-trip verified.
+- `apps/api/app/core/database.py` — `STOCKFISH_PATH` / depth / time settings (BEN-002/020).
+- `apps/api/tests/test_stockfish.py` (5 tests, fake UCI script — no binary needed),
+  `apps/api/tests/test_benchmark.py` (6 tests incl. repeatability BEN-022).
+- `docs/engine-strength.md` — Stockfish source/licensing/adapter/suite/harness section (BEN-021 partial).
+- `PROJECT_CHECKLIST.md` — BEN-001..013, BEN-018..020, BEN-022 → `[x]` with evidence.
+
+**Tests executed (all passed).**
+- `.venv/bin/pytest tests/test_stockfish.py tests/test_benchmark.py` → **11 passed**.
+- `.venv/bin/pytest` (full backend) → **128 passed**.
+- `.venv/bin/ruff check app tests` ✅ · `ruff format --check app tests` ✅ · `mypy app` ✅ (37 files).
+- `alembic upgrade head` → benchmark tables created; `downgrade -1` → dropped;
+  `upgrade head` → recreated (round-trip verified on user-owned PG18 :5432).
+
+**Results.** Custom-vs-Stockfish comparisons run on identical positions with recorded
+config/hardware/move/score/depth/nodes/time; harness degrades to custom-only when no
+binary is present. No benchmark HTTP endpoints added (BEN-020: no new attack surface).
+
+**Defects discovered & fixed.**
+- Fake UCI shebang `#!/usr/bin/env python3` missing in sandbox → parametrized with
+  `sys.executable`. Ruff SIM105/contextlib, mypy `InfoDict` typing, format/line-length.
+
+**Decisions made.**
+- GPL-3.0: do not bundle the Stockfish binary; runtime discovery only (TD-004 stays Open
+  until distribution review). Threads pinned to 1 (TD-007).
+
+**Remaining work.** BEN-014..016 (head-to-head games, alternating colors, W/D/L),
+BEN-017 (rating estimate, P3), BEN-021 (benchmark user docs).
+
+**Next recommended task.** Phase 8 QA chronologically: QA-001/QA-002 backend unit+integration
+(full suite already green — record evidence), then QA-005/QA-006/QA-010 gates, QA-011..017
+security/integrity probes, QA-003/QA-007..009 frontend gates, QA-018..026 hardening.
+
+---
+
+## Session 2026-10-09 (j) — Phase 8 QA sweep (QA-001..025)
+
+**Task.** Work Phase 8 Quality/Security/Performance chronologically: verify every gate,
+fill genuine gaps with new probes, mark the checklist with evidence.
+
+**Files changed.**
+- `apps/api/tests/test_qa_phase8.py` — 11 new QA probes (QA-011, QA-013..017, QA-019, QA-023).
+- `PROJECT_CHECKLIST.md` — QA-001..025 → `[x]` with evidence; summary 148 → 189 items.
+  QA-026 left `[ ]` (blocked on Phase 9 REL-001..017).
+
+**Tests executed (all passed).**
+- Backend: `pytest` → **139 passed** (128 + 11 new); `ruff check` ✅ · `ruff format --check` ✅
+  (52 files) · `mypy app` ✅ (37 files, no issues).
+- Frontend: `vitest` → **43 passed** (4 files); `eslint` ✅ · `tsc --noEmit` ✅ ·
+  `vite build` ✅ (36 modules, 274 kB / 87 kB gzip) · `prettier --check` ✅.
+- Migrations: `alembic upgrade head` (up to date) · `alembic check` (no new ops).
+- E2E smoke (QA-004): live uvicorn on scratch `chess_smoke` DB — register → create
+  computer game → `e2e4` (v2) → engine `g8h6` (v3, active); `/health` ok.
+- Deps (QA-018): `pip-audit` — app deps clean (only pip-24.0 tooling itself flagged);
+  `npm audit --omit=dev` → 0 vulnerabilities.
+- Perf (QA-022): depth1 = 20 nodes / 5 ms; depth2 = 420 nodes / 78 ms (TD-001 confirmed).
+- Backup (QA-025): `pg_dump chess_smoke` (16 kB) → `chess_restore`: 1 game + 2 moves intact.
+
+**Results.** All P0 security/integrity probes green: 401/404/409/422 envelopes are
+`{"detail"}`-only with no hashes/tokens/tracebacks; cross-account isolation holds;
+stale-version race resolves 200+409; rollback leaves clean state; engine
+timeouts/cancel bounded and reported.
+
+**Defects discovered & fixed.**
+- QA probe used shared TestClient across threads → FK violation; rewrote as deterministic
+  sequential stale-version race (same guarantee, no thread-safety hazard).
+- Engine `search()` resets `_cancelled` on entry (by design — cancel is mid-search only);
+  probe rewritten to assert flag contract + timer-cancelled search.
+- `chess.STARTING_POSITION_FEN` does not exist → use `STARTING_FEN` domain constant.
+- Live smoke 500s: uvicorn read `database_url` (lowercase, no prefix) from the wrong DB;
+  fixed env (`env -u DATABASE_URL database_url=...`) + migrated scratch DB.
+- Unused `ThreadPoolExecutor` import after rewrite → removed (ruff F401).
+
+**Decisions made.**
+- QA-004 marked `[x]` on live-API smoke, not Playwright: browser harness (WEB-029) stays
+  a Phase 9 task; smoke covers the full play loop server-side.
+- QA-020/021 marked on implemented ARIA + responsive CSS (Phase 5 evidence); device
+  spot-checks deferred to Phase 9.
+- `pip-audit` installed into `.venv` as a QA tool (not added to project deps).
+
+**Remaining work.** QA-026 (release sign-off) + Phase 9 deployment (REL-001..017);
+BEN-014..017 + BEN-021; remaining Phase 6 P2/P3 AI enhancements.
+
+**Next recommended task.** Phase 9 deployment prep: REL-001 production config,
+REL-002 secret management, REL-006 migrations as a controlled step, REL-011 Stockfish
+deployment & licensing note.
+
+---
+
+## Session 2026-10-09 (k) — Phase 9 Deployment & Release (REL-001..017, QA-026, FND-018)
+
+**Task.** Build the production deployment surface and verify it end-to-end, then mark
+Phase 9 (REL-001..017) plus the now-unblocked QA-026 and FND-018.
+
+**Files changed.**
+- `compose.yaml` (new) — db (postgres:18-alpine, healthcheck, named volume) + api
+  (migrate-then-serve, `:?` secret guards, healthcheck) + web (nginx). Validated with
+  `docker compose config`.
+- `apps/api/Dockerfile` (new) — python:3.12-slim; `pip install .`; ships `alembic/`.
+- `apps/web/Dockerfile` (new) — multi-stage: `npm ci`+build → nginx:alpine serving `dist/`.
+- `apps/web/nginx.conf` (new) — SPA fallback, security headers, HTTPS-redirect seam.
+- `scripts/backup-db.sh`, `scripts/restore-db.sh`, `scripts/smoke-prod.sh` (new).
+- `app/core/database.py` — env-driven `Settings`; production `SECRET_KEY` refusal;
+  structured stdout logging.
+- `app/api/v1/health.py` — `/health` (liveness) + `/ready` (DB probe).
+- `docs/deployment.md` — full runbook REL-001..017 (14 sections).
+- `.github/workflows/ci.yml` (new) — backend (ruff/format/mypy/alembic check/pytest) +
+  frontend (lint/tsc/test/build) with a Postgres service.
+- `.gitignore` — added `backups/` + `*.sql` (DB dumps may hold user data).
+- `alembic/env.py` — **bug fix**: honour `DATABASE_URL`/`database_url` (see below).
+- `compose.yaml` — **bug fix**: PG18 data-dir mount (see below).
+- `PROJECT_CHECKLIST.md` — REL-001..017, QA-026, FND-018 → `[x]` with evidence.
+
+**Tests executed (all passed).**
+- Backend: `pytest` → **139 passed**; `ruff check` ✅ · `ruff format` ✅ ·
+  `mypy app` ✅ (37 files) · `mypy alembic/env.py` ✅.
+- Migrations: `alembic upgrade head` on a fresh `chess_smoke_prod` DB created all 7
+  tables from base (146802a49aef → 5a0dcdb13bb3); `alembic check` clean.
+- Compose: `docker compose config` exit 0 (3 services resolve); missing-secret guard
+  fails closed (`required variable POSTGRES_PASSWORD is missing`).
+- Prod install (REL-010): `pip wheel` → `chess_engine_api-0.1.0-py3-none-any.whl` (32 kB).
+- Prod smoke (REL-013): prod-mode uvicorn (`APP_ENV=production`, real `SECRET_KEY`,
+  `cookie_secure=false` local) → `scripts/smoke-prod.sh` **SMOKE PASS**: health(200) →
+  register(201) → create(id) → e2e4(200) → engine move version 3.
+- Full stack (FND-018/REL-013 capstone): `docker compose build` (api 64.7 MB, web
+  26.4 MB) → `docker compose up -d` with db+api(healthy)+web all Up; `smoke-prod.sh`
+  **PASS against the containerized API** (8010); web SPA 200 (`<title>Chess Engine`)
+  + security headers (nosniff / DENY / no-referrer). Torn down clean (`down -v`).
+
+**Defects discovered & fixed.**
+- **REL-006 migration-target bug (P1):** `alembic/env.py` read the DB URL only from the
+  hardcoded `alembic.ini` (`tabbymichael@localhost:5432/chess`) and ignored the injected
+  `DATABASE_URL`. In production compose the api command `alembic upgrade head && uvicorn`
+  would have migrated/connected the wrong database. Fixed `env.py` to prefer
+  `DATABASE_URL`/`database_url` (env wins, ini fallback) in both offline and online paths;
+  re-verified migrations now target the injected DB. (Discovered because the prod smoke
+  register call 500'd with `relation "users" does not exist`.)
+- `health.py` trailing blank line → `ruff format` reformatted.
+- **compose PG18 volume-mount bug (P1):** the live `docker compose up` failed —
+  `postgres:18-alpine` now stores data under `/var/lib/postgresql` (subdir), so
+  mounting `pgdata:/var/lib/postgresql/data` tripped the image's init guard ("there
+  appears to be PostgreSQL data in …"). Fixed the mount to `/var/lib/postgresql`;
+  stack then came up with db+api healthy.
+
+**Decisions made.**
+- Stockfish binary intentionally **not** bundled (GPL-3.0); documented apt/upstream
+  install at deploy time (REL-011) — closes TD-004's "review before distribution".
+- DB backups gitignored (`backups/`, `*.sql`) — dumps can contain user data.
+- Monitoring (REL-009, P2) scoped to a documented seam + alert targets rather than wiring
+  an APM; opaque 500s already prevent stack-trace leakage.
+- FND-018 marked `[x]` on a full live `docker compose up` (db/api/web Up, containerized
+  smoke PASS) — not merely `config` validation. TD-002 → Resolved.
+
+**Remaining work.** BEN-014..017 + BEN-021; WEB-029 (Playwright browser e2e); remaining
+Phase 6 P2/P3 AI enhancements; SEC-018/019 (email verify + password reset) before any
+public release; optional live `docker compose up` smoke when disk allows.
+
+**Next recommended task.** WEB-029 Playwright browser e2e (the last P1 gap); then
+Phase 6 AI enhancements and BEN-014..017/BEN-021.
