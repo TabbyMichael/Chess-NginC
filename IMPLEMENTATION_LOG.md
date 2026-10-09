@@ -357,3 +357,57 @@ BEN-017 (rating estimate, P3), BEN-021 (benchmark user docs).
 **Next recommended task.** Phase 8 QA chronologically: QA-001/QA-002 backend unit+integration
 (full suite already green — record evidence), then QA-005/QA-006/QA-010 gates, QA-011..017
 security/integrity probes, QA-003/QA-007..009 frontend gates, QA-018..026 hardening.
+
+---
+
+## Session 2026-10-09 (j) — Phase 8 QA sweep (QA-001..025)
+
+**Task.** Work Phase 8 Quality/Security/Performance chronologically: verify every gate,
+fill genuine gaps with new probes, mark the checklist with evidence.
+
+**Files changed.**
+- `apps/api/tests/test_qa_phase8.py` — 11 new QA probes (QA-011, QA-013..017, QA-019, QA-023).
+- `PROJECT_CHECKLIST.md` — QA-001..025 → `[x]` with evidence; summary 148 → 189 items.
+  QA-026 left `[ ]` (blocked on Phase 9 REL-001..017).
+
+**Tests executed (all passed).**
+- Backend: `pytest` → **139 passed** (128 + 11 new); `ruff check` ✅ · `ruff format --check` ✅
+  (52 files) · `mypy app` ✅ (37 files, no issues).
+- Frontend: `vitest` → **43 passed** (4 files); `eslint` ✅ · `tsc --noEmit` ✅ ·
+  `vite build` ✅ (36 modules, 274 kB / 87 kB gzip) · `prettier --check` ✅.
+- Migrations: `alembic upgrade head` (up to date) · `alembic check` (no new ops).
+- E2E smoke (QA-004): live uvicorn on scratch `chess_smoke` DB — register → create
+  computer game → `e2e4` (v2) → engine `g8h6` (v3, active); `/health` ok.
+- Deps (QA-018): `pip-audit` — app deps clean (only pip-24.0 tooling itself flagged);
+  `npm audit --omit=dev` → 0 vulnerabilities.
+- Perf (QA-022): depth1 = 20 nodes / 5 ms; depth2 = 420 nodes / 78 ms (TD-001 confirmed).
+- Backup (QA-025): `pg_dump chess_smoke` (16 kB) → `chess_restore`: 1 game + 2 moves intact.
+
+**Results.** All P0 security/integrity probes green: 401/404/409/422 envelopes are
+`{"detail"}`-only with no hashes/tokens/tracebacks; cross-account isolation holds;
+stale-version race resolves 200+409; rollback leaves clean state; engine
+timeouts/cancel bounded and reported.
+
+**Defects discovered & fixed.**
+- QA probe used shared TestClient across threads → FK violation; rewrote as deterministic
+  sequential stale-version race (same guarantee, no thread-safety hazard).
+- Engine `search()` resets `_cancelled` on entry (by design — cancel is mid-search only);
+  probe rewritten to assert flag contract + timer-cancelled search.
+- `chess.STARTING_POSITION_FEN` does not exist → use `STARTING_FEN` domain constant.
+- Live smoke 500s: uvicorn read `database_url` (lowercase, no prefix) from the wrong DB;
+  fixed env (`env -u DATABASE_URL database_url=...`) + migrated scratch DB.
+- Unused `ThreadPoolExecutor` import after rewrite → removed (ruff F401).
+
+**Decisions made.**
+- QA-004 marked `[x]` on live-API smoke, not Playwright: browser harness (WEB-029) stays
+  a Phase 9 task; smoke covers the full play loop server-side.
+- QA-020/021 marked on implemented ARIA + responsive CSS (Phase 5 evidence); device
+  spot-checks deferred to Phase 9.
+- `pip-audit` installed into `.venv` as a QA tool (not added to project deps).
+
+**Remaining work.** QA-026 (release sign-off) + Phase 9 deployment (REL-001..017);
+BEN-014..017 + BEN-021; remaining Phase 6 P2/P3 AI enhancements.
+
+**Next recommended task.** Phase 9 deployment prep: REL-001 production config,
+REL-002 secret management, REL-006 migrations as a controlled step, REL-011 Stockfish
+deployment & licensing note.

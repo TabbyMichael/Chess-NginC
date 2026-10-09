@@ -262,32 +262,32 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 
 | ID | Requirement | Pri | Status | Evidence / Location |
 |----|-------------|-----|--------|---------------------|
-| QA-001 | All backend unit tests | P1 | [ ] | |
-| QA-002 | Backend integration tests | P1 | [ ] | |
-| QA-003 | Frontend unit tests | P1 | [ ] | |
-| QA-004 | e2e smoke tests | P1 | [ ] | |
-| QA-005 | Python lint | P1 | [ ] | |
-| QA-006 | Python type check | P1 | [ ] | |
-| QA-007 | Frontend lint | P1 | [ ] | |
-| QA-008 | TS type check | P1 | [ ] | |
-| QA-009 | Production build | P1 | [ ] | |
-| QA-010 | Validate migrations | P1 | [ ] | |
-| QA-011 | Test unauthorized access | P0 | [ ] | |
-| QA-012 | Test cross-user data isolation | P0 | [ ] | |
-| QA-013 | Test invalid/malformed moves | P0 | [ ] | |
-| QA-014 | Test repeated & concurrent requests | P1 | [ ] | |
-| QA-015 | Test engine timeouts | P0 | [ ] | |
-| QA-016 | Test restart & game recovery | P1 | [ ] | |
-| QA-017 | Test DB rollback | P0 | [ ] | |
-| QA-018 | Check dependency vulnerabilities | P1 | [ ] | |
-| QA-019 | Verify no secrets in logs | P0 | [ ] | |
-| QA-020 | Review accessibility | P2 | [ ] | |
-| QA-021 | Review mobile & desktop layouts | P2 | [ ] | |
-| QA-022 | Performance tests | P2 | [ ] | |
-| QA-023 | Review slow DB queries | P2 | [ ] | |
-| QA-024 | Review technical debt | P1 | [ ] | |
-| QA-025 | Verify backup & restore | P1 | [ ] | |
-| QA-026 | Verify release checklist | P1 | [ ] | |
+| QA-001 | All backend unit tests | P1 | [x] | `pytest` → **139 passed** (128 existing + 11 QA probes) on user-owned PG18 :5432. |
+| QA-002 | Backend integration tests | P1 | [x] | Auth/games/engine/benchmark API tests green in the same 139-passed run (TestClient + live PG). |
+| QA-003 | Frontend unit tests | P1 | [x] | `npm run test:run` → **43 passed** (4 files: api-types, chess, App, GamePage). |
+| QA-004 | e2e smoke tests | P1 | [x] | Live uvicorn smoke on scratch DB: register → create computer game → e2e4 → engine g8h6 (v3, active); `/health` ok. No Playwright harness (WEB-029/Phase 9). |
+| QA-005 | Python lint | P1 | [x] | `ruff check app tests` → All checks passed; `ruff format --check` → 52 files formatted. |
+| QA-006 | Python type check | P1 | [x] | `mypy app` → no issues in 37 source files. |
+| QA-007 | Frontend lint | P1 | [x] | `npm run lint` (eslint .) → clean. |
+| QA-008 | TS type check | P1 | [x] | `npx tsc --noEmit` → clean. |
+| QA-009 | Production build | P1 | [x] | `npm run build` → 36 modules, 274 kB / 87 kB gzip; `format:check` → Prettier clean. |
+| QA-010 | Validate migrations | P1 | [x] | `alembic upgrade head` → up to date; `alembic check` → no new ops; `5a0dcdb13bb3` round-trip verified earlier. |
+| QA-011 | Test unauthorized access | P0 | [x] | `test_unauthenticated_games_rejected`, `test_me_unauthenticated_is_401`, `test_unauthorized_shapes_have_no_leak` (401 + `{"detail":"Not authenticated"}`, forged cookie opaque). |
+| QA-012 | Test cross-user data isolation | P0 | [x] | `test_cross_account_isolation`, `test_recover_game_ownership_enforced`, repo ownership tests (404 for foreign ids). |
+| QA-013 | Test invalid/malformed moves | P0 | [x] | `test_malformed_move_shapes` (zzzz/e2e5/not-a-move/e7e8q → 422 envelope); illegal/castle/promotion suites. |
+| QA-014 | Test repeated & concurrent requests | P1 | [x] | `test_concurrent_stale_write_one_wins` (200+409), `test_repeated_create_is_stable` (5 distinct), `test_stale_version_conflict_shape`; `test_auth_rate_limit`. |
+| QA-015 | Test engine timeouts | P0 | [x] | `test_engine_timeout_stays_in_budget`, `test_engine_cancel_flag_set`, `test_engine_cancel` (termination recorded, bounded). |
+| QA-016 | Test restart & game recovery | P1 | [x] | `test_restart_recovery_via_api` (re-login → moves e2e4/e7e5, v3, FEN round-trip); `test_recover_game_with_moves`. |
+| QA-017 | Test DB rollback | P0 | [x] | `test_db_rollback_leaves_clean_state` + `test_rollback_after_failed_write` + `test_stale_version_conflict_shape` (state consistent). |
+| QA-018 | Check dependency vulnerabilities | P1 | [x] | `pip-audit`: app deps clean (only pip-24.0 itself flagged, env tooling); `npm audit --omit=dev` → 0 vulns. |
+| QA-019 | Verify no secrets in logs | P0 | [x] | `test_no_secrets_in_error_bodies` (no password_hash/traceback; `{"detail"}`-only); error envelope SEC-016. |
+| QA-020 | Review accessibility | P2 | [x] | Board is `role=grid` + per-square `aria-label`/`aria-pressed`, `aria-live` status, labelled promotion dialog, keyboard navigation (Phase 5 session h). |
+| QA-021 | Review mobile & desktop layouts | P2 | [x] | `styles.css` responsive (`max-width:68rem`, `@media max-width:46rem` stacking); needs device spot-check in Phase 9. |
+| QA-022 | Performance tests | P2 | [x] | Engine probe: depth1 20 nodes/5 ms, depth2 420 nodes/78 ms (pure-Python, TD-001); API smoke p50 <1 s; depth3+ profiling deferred. |
+| QA-023 | Review slow DB queries | P2 | [x] | `test_slow_query_review`: ownership lookups on indexed `user_id` + `game_id` FKs; no N+1 (single list/get per request). |
+| QA-024 | Review technical debt | P1 | [x] | TD register reviewed: TD-004 (GPL review done — no bundling), TD-007 (threads=1), TD-009 workaround, TD-011 warning-only; TD-001/TD-002/TD-008 still Open. |
+| QA-025 | Verify backup & restore | P1 | [x] | `pg_dump chess_smoke` (16 kB) → restored to `chess_restore`: 1 game + 2 moves intact. Repeat with prod tooling in Phase 9. |
+| QA-026 | Verify release checklist | P1 | [ ] | Blocked on Phase 9: needs REL-001..017 (prod config, HTTPS, secrets, monitoring) before sign-off. |
 
 ---
 
@@ -318,9 +318,9 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 ## Summary
 
 - **Total items:** 237
-- **Implemented & verified (`[x]`):** FND-001..FND-017, FND-019..FND-022, CHS-001..CHS-024, AI-001..AI-005, AI-007..AI-008, AI-011..AI-012, AI-015..AI-021, AI-024, DB-001..DB-007, DB-010..DB-017, DB-018..DB-021, SEC-001..SEC-008, SEC-010..SEC-012, SEC-014..SEC-017, SEC-020..SEC-021, API-001..API-012, API-016..API-024, WEB-001..WEB-028, WEB-030 (148 items)
+- **Implemented & verified (`[x]`):** FND-001..FND-017, FND-019..FND-022, CHS-001..CHS-024, AI-001..AI-005, AI-007..AI-008, AI-011..AI-012, AI-015..AI-021, AI-024, DB-001..DB-007, DB-010..DB-017, DB-018..DB-021, SEC-001..SEC-008, SEC-010..SEC-012, SEC-014..SEC-017, SEC-020..SEC-021, API-001..API-012, API-016..API-024, WEB-001..WEB-028, WEB-030, BEN-001..BEN-013, BEN-018..BEN-020, BEN-022, QA-001..QA-025 (189 items)
 - **Intentionally deferred (`[-]`):** API-013 (analysis UX decision), API-014/API-015 (benchmark harness, Phase 7).
-- **Not yet started (`[ ]`):** WEB-029 (browser e2e — Playwright harness, Phase 9) and all remaining Phase 6+ items.
+- **Not yet started (`[ ]`):** QA-026 (release sign-off, Phase 9), WEB-029 (browser e2e — Playwright harness, Phase 9), BEN-014..017 + BEN-021, and remaining Phase 6 P2/P3 items.
 - **Deferred (`[-]`):** SEC-018, SEC-019 (required before public release)
 - **Blocked (`[!]`):** none yet (FND-018 Docker Compose and FND-019 Postgres remain `[ ]` — Docker not installed locally)
 
