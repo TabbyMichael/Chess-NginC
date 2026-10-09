@@ -13,6 +13,9 @@
 | TD-006 | Full PGN stored/derived from moves (no cached copy) | Avoid competing representations | Low | game/history | Generate PGN from moves; add cache only if needed | Measured performance/recovery need | Accepted |
 | TD-007 | Single engine worker initially | Keep concurrency bounded | Medium under load | engine | Bounded worker pool | Concurrent demand requires it | Accepted |
 | TD-008 | Disk at 99% capacity on dev machine | External environment | High — blocks builds/installs | infra/ops | Free space (user action) | Before installing dependencies | Open |
+| TD-009 | npm cache `~/.npm` has root-owned files (npm bug) | Prior npm bug; needs `sudo chown -R 501:20 ~/.npm` | Low — worked around with temp `--cache` | web | Run the chown once (user action) | Next npm install friction | Open |
+| TD-010 | `uvicorn[standard]` (uvloop/httptools) not yet used | 3.14 wheel availability unconfirmed | Low — fewer prod niceties | api | Confirm wheels, then enable extras | Before production | Open |
+| TD-011 | Starlette `TestClient` deprecates `httpx` in favor of `httpx2` | Upstream forward-migration | Low — test warning only today | api/tests | Migrate to httpx2 when stable | When starlette drops httpx | Open |
 
 ## Watched risks (from spec)
 
