@@ -90,6 +90,35 @@
 
 ---
 
+## Session 2026-10-09 (d) — Chess-rules domain core (CHS-001..CHS-010)
+
+**Task.** Implement the chess-rules domain: enums, Game/Move model, and a `ChessRules` adapter over python-chess (board init, UCI validation, SAN, check/checkmate/stalemate).
+
+**Files changed.**
+- `apps/api/app/games/domain.py` — `GameMode`/`Color`/`GameStatus` (`StrEnum`), `Move`, `Game`, `STARTING_FEN`.
+- `apps/api/app/games/errors.py` — `InvalidMoveError`, `IllegalMoveError`.
+- `apps/api/app/games/rules.py` — `ChessRules` adapter (only module importing `chess`).
+- `apps/api/app/games/__init__.py`.
+- `apps/api/tests/test_domain.py`, `apps/api/tests/test_rules.py`.
+
+**Tests executed (all passed).**
+- `ruff check .` ✅ · `ruff format --check .` ✅ · `mypy app` ✅ (10 files) · `pytest` → **22 passed**.
+
+**Defects discovered & fixed.**
+- ruff `UP042` → switched `(str, Enum)` to `StrEnum`.
+- ruff `I001` import sorting → `ruff check --fix`.
+- Promotion test expected `a8=Q` but position gave `a8=Q+` (king on a-file) → used a king-safe FEN.
+
+**Decisions made.**
+- `ChessRules` is the single module importing `chess`; domain types are chess-free.
+- Fifty-move/threefold repetition deferred to CHS-014/CHS-016 (documented in `status()`).
+
+**Remaining work.** CHS-011..CHS-024 (castling, en passant, promotion, repetition, resignation, draw claims, FEN/PGN, history/replay, undo, invariants, edge/property tests).
+
+**Next recommended task.** CHS-011..CHS-013 (castling, en passant, promotion/underpromotion) + CHS-017 (FEN generate/validate) with targeted tests.
+
+---
+
 ## Session template (copy per session)
 
 **Task.** …

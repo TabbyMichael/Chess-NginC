@@ -43,16 +43,16 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 
 | ID | Requirement | Pri | Status | Evidence / Location |
 |----|-------------|-----|--------|---------------------|
-| CHS-001 | Game modes & game-status enums | P1 | [ ] | |
-| CHS-002 | Game domain model | P1 | [ ] | |
-| CHS-003 | Chess-rules adapter | P1 | [ ] | |
-| CHS-004 | Integrate python-chess | P1 | [ ] | |
-| CHS-005 | Board initialization | P1 | [ ] | |
-| CHS-006 | Validate UCI moves | P0 | [ ] | |
-| CHS-007 | SAN move notation | P1 | [ ] | |
-| CHS-008 | Detect check | P1 | [ ] | |
-| CHS-009 | Detect checkmate | P1 | [ ] | |
-| CHS-010 | Detect stalemate | P1 | [ ] | |
+| CHS-001 | Game modes & game-status enums | P1 | [x] | app/games/domain.py (GameMode, Color, GameStatus). |
+| CHS-002 | Game domain model | P1 | [x] | app/games/domain.py (Game, Move dataclasses). |
+| CHS-003 | Chess-rules adapter | P1 | [x] | app/games/rules.py (ChessRules). |
+| CHS-004 | Integrate python-chess | P1 | [x] | chess imported only in rules.py. |
+| CHS-005 | Board initialization | P1 | [x] | ChessRules().fen == STARTING_FEN (tested). |
+| CHS-006 | Validate UCI moves | P0 | [x] | parse → InvalidMoveError; legality → IllegalMoveError (tested). |
+| CHS-007 | SAN move notation | P1 | [x] | apply_move returns SAN (e4, O-O, a8=Q tested). |
+| CHS-008 | Detect check | P1 | [x] | ChessRules.is_check() (fool's-mate test). |
+| CHS-009 | Detect checkmate | P1 | [x] | ChessRules.status() → CHECKMATE (fool's-mate test). |
+| CHS-010 | Detect stalemate | P1 | [x] | ChessRules.status() → STALEMATE (stalemate FEN test). |
 | CHS-011 | Castling (kingside & queenside) | P1 | [ ] | |
 | CHS-012 | En passant | P1 | [ ] | |
 | CHS-013 | Promotion & underpromotion | P1 | [ ] | |
@@ -318,7 +318,7 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 ## Summary
 
 - **Total items:** 237
-- **Implemented & verified (`[x]`):** FND-001..FND-017, FND-020..FND-022 (20 items)
+- **Implemented & verified (`[x]`):** FND-001..FND-017, FND-020..FND-022, CHS-001..CHS-010 (30 items)
 - **Deferred (`[-]`):** SEC-018, SEC-019 (required before public release)
 - **Blocked (`[!]`):** none yet (FND-018 Docker Compose and FND-019 Postgres remain `[ ]` — Docker not installed locally)
 
