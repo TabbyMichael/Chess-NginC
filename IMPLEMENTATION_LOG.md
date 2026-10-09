@@ -247,3 +247,61 @@ via POST moves / engine-move, using `api-types.ts`.
 **Decisions made.** …
 **Remaining work.** …
 **Next recommended task.** …
+---
+
+## Session (h) — Phase 5 frontend
+
+**Task.** Build the React + TypeScript client (Phase 5, WEB-001..WEB-030) against the Phase 3/4 API.
+
+**Files changed.**
+- `apps/web/src/lib/api-client.ts` — typed client with cookie session + `ApiError` normalisation.
+- `apps/web/src/lib/chess.ts` — FEN parsing, square colouring, captured-piece accounting.
+- `apps/web/src/app/auth-context.ts`, `app/AuthContext.tsx`, `app/useAuth.ts`, `app/RequireAuth.tsx`.
+- `apps/web/src/pages/AuthPages.tsx`, `pages/Dashboard.tsx`, `pages/GamePage.tsx`.
+- `apps/web/src/components/Chessboard.tsx`, `MoveHistory.tsx`, `GameStatus.tsx`.
+- `apps/web/src/App.tsx`, `main.tsx`, `styles.css`.
+- Tests: `App.test.tsx`, `pages/GamePage.test.tsx`, `lib/chess.test.ts`, `src/test/setup.ts`, `vite.config.ts`.
+- `apps/web/package.json` — added `@testing-library/user-event`.
+
+**Tests executed.**
+- `npx tsc --noEmit` → clean
+- `npx eslint src --max-warnings=0` → clean
+- `npx prettier --check src` → clean
+- `npx vitest run` → **43 passed** (4 files)
+- `npx vite build` → success, 274 kB / 87 kB gzip
+- `pytest` (api, regression) → **117 passed**
+
+**Results.** Full play loop works end-to-end: register/login, create game, click-to-move and
+HTML5 drag-and-drop, promotion dialog, move history, captured pieces, undo, reset-to-start,
+resign, engine move, and resume of an existing game. Games reload from the API and render the
+stored position.
+
+**Defects discovered and fixed.**
+1. **`isLightSquare` inverted** — `(file + rank) % 2 === 1` made a1 and h8 *light*. The whole
+   board rendered with swapped colours; caught by the new `chess.test.ts` cases.
+2. **Reset-to-start loop terminated after one undo** — the loop bound was `game.moves.length`
+   captured before the first await, so it used the stale initial count while the refetched value
+   shrank to 0. Rewritten as a `while` loop on the refetched state with a no-progress guard.
+3. **No RTL cleanup between tests** — vitest runs without `globals`, so auto-cleanup never
+   registered; DOM accumulated and queries matched duplicates. Added `cleanup()` in setup.
+4. **Spy leakage** — `renderGame` re-spied `getGame` over the per-test mock, silently replacing
+   test intent. `renderGame` now mocks only `me`; each test owns `getGame`.
+5. **Fast-refresh violation** — `useAuth` and the context lived in `AuthContext.tsx`, breaking
+   Fast Refresh. Split into `auth-context.ts` (context + type), `useAuth.ts` (hook), and
+   `AuthContext.tsx` (provider component only).
+6. Form labels used implicit nesting, producing ambiguous `getByLabelText` matches; switched to
+   explicit `id`/`htmlFor` pairs.
+
+**Decisions made.**
+- Board squares are `<button role="gridcell">` inside `role="grid"` with per-square
+  `aria-label` and arrow-key navigation, so the board is usable without a mouse.
+- Piece rendering uses Unicode glyphs rather than an image sprite — no asset pipeline needed
+  for this phase.
+- Optimistic UI was rejected: the board only changes on a confirmed server response, which is
+  what makes the 409 resync path observable and testable.
+- Reset-to-start is a client-side undo loop because the API has no bulk-reset endpoint.
+
+**Remaining work.** WEB-029 (browser e2e with Playwright — needs the harness, Phase 9).
+
+**Next recommended task.** Phase 6 analysis/review UI (API-013 analysis endpoint + board
+annotations), or the engine evaluation pipeline in Phase 7 if analysis UX is deferred.

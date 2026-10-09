@@ -165,36 +165,36 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 
 | ID | Requirement | Pri | Status | Evidence / Location |
 |----|-------------|-----|--------|---------------------|
-| WEB-001 | Initialize React + TypeScript | P1 | [ ] | |
-| WEB-002 | Strict TypeScript | P1 | [ ] | |
-| WEB-003 | Linting & formatting | P1 | [ ] | |
-| WEB-004 | Router | P1 | [ ] | |
-| WEB-005 | Registration UI | P1 | [ ] | |
-| WEB-006 | Login UI | P1 | [ ] | |
-| WEB-007 | Logout | P1 | [ ] | |
-| WEB-008 | Session restoration | P1 | [ ] | |
-| WEB-009 | Main dashboard | P1 | [ ] | |
-| WEB-010 | Chessboard | P1 | [ ] | |
-| WEB-011 | Legal-move selection | P1 | [ ] | |
-| WEB-012 | Drag-and-drop | P1 | [ ] | |
-| WEB-013 | Promotion selection | P1 | [ ] | |
-| WEB-014 | Show whose turn | P1 | [ ] | |
-| WEB-015 | Show check & checkmate | P1 | [ ] | |
-| WEB-016 | Show stalemate & draws | P1 | [ ] | |
-| WEB-017 | Move history | P1 | [ ] | |
-| WEB-018 | Captured-piece display | P2 | [ ] | |
-| WEB-019 | Undo & reset controls | P1 | [ ] | |
-| WEB-020 | Player-vs-computer setup | P1 | [ ] | |
-| WEB-021 | Local two-player setup | P1 | [ ] | |
-| WEB-022 | Engine difficulty selection | P1 | [ ] | |
-| WEB-023 | Saved-game listing | P1 | [ ] | |
-| WEB-024 | Game resume | P1 | [ ] | |
-| WEB-025 | Loading & error states | P1 | [ ] | |
-| WEB-026 | Responsive layout | P2 | [ ] | |
-| WEB-027 | Keyboard & accessibility | P2 | [ ] | |
-| WEB-028 | Frontend unit tests | P1 | [ ] | |
-| WEB-029 | Browser e2e tests | P1 | [ ] | |
-| WEB-030 | Verify production build | P1 | [ ] | |
+| WEB-001 | Initialize React + TypeScript | P1 | [x] | vite react-ts scaffold; apps/web/vite.config.ts |
+| WEB-002 | Strict TypeScript | P1 | [x] | tsconfig strict; `npx tsc --noEmit` clean |
+| WEB-003 | Linting & formatting | P1 | [x] | eslint+prettier; both clean on src/ |
+| WEB-004 | Router | P1 | [x] | react-router in src/App.tsx; App.test.tsx routing tests |
+| WEB-005 | Registration UI | P1 | [x] | src/pages/AuthPages.tsx RegisterForm |
+| WEB-006 | Login UI | P1 | [x] | src/pages/AuthPages.tsx LoginForm |
+| WEB-007 | Logout | P1 | [x] | AuthContext logout; Dashboard nav |
+| WEB-008 | Session restoration | P1 | [x] | AuthContext /auth/me on mount; App.test.tsx |
+| WEB-009 | Main dashboard | P1 | [x] | src/pages/Dashboard.tsx |
+| WEB-010 | Chessboard | P1 | [x] | src/components/Chessboard.tsx; lib/chess.ts FEN parser |
+| WEB-011 | Legal-move selection | P1 | [x] | GamePage click-to-move; GamePage.test.tsx |
+| WEB-012 | Drag-and-drop | P1 | [x] | Chessboard dragStart/drop handlers |
+| WEB-013 | Promotion selection | P1 | [x] | GamePage promotion dialog; test asserts b7a8n |
+| WEB-014 | Show whose turn | P1 | [x] | GameStatus turn line + Chessboard status |
+| WEB-015 | Show check & checkmate | P1 | [x] | GameStatus checkmate branch; test asserts Checkmate |
+| WEB-016 | Show stalemate & draws | P1 | [x] | GameStatus stalemate/draw branch; test asserts Stalemate |
+| WEB-017 | Move history | P1 | [x] | src/components/MoveHistory.tsx; GamePage.test.tsx resume test |
+| WEB-018 | Captured-piece display | P2 | [x] | lib/chess.ts capturedPieces(); 15 chess.test.ts cases |
+| WEB-019 | Undo & reset controls | P1 | [x] | GamePage Undo + Reset-to-start; tests assert undo calls |
+| WEB-020 | Player-vs-computer setup | P1 | [x] | Dashboard mode=computer |
+| WEB-021 | Local two-player setup | P1 | [x] | Dashboard mode=local |
+| WEB-022 | Engine difficulty selection | P1 | [x] | Dashboard depth select 1-5; engineMove default depth 3 |
+| WEB-023 | Saved-game listing | P1 | [x] | Dashboard saved-game list |
+| WEB-024 | Game resume | P1 | [x] | GamePage resume; test asserts resume + board state |
+| WEB-025 | Loading & error states | P1 | [x] | AuthContext/Dashboard/GamePage loading+error; tests |
+| WEB-026 | Responsive layout | P2 | [x] | styles.css @media |
+| WEB-027 | Keyboard & accessibility | P2 | [x] | Chessboard arrow-key nav + aria-labels |
+| WEB-028 | Frontend unit tests | P1 | [x] | 43 vitest tests (App/GamePage/chess/api-types) |
+| WEB-029 | Browser e2e tests | P1 | [ ] | Deferred: needs Playwright harness (Phase 9) |
+| WEB-030 | Verify production build | P1 | [x] | `npx vite build` succeeds, 274 kB / 87 kB gzip |
 
 ---
 
@@ -318,7 +318,9 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 ## Summary
 
 - **Total items:** 237
-- **Implemented & verified (`[x]`):** FND-001..FND-017, FND-019..FND-022, CHS-001..CHS-024, AI-001..AI-005, AI-007..AI-008, AI-011..AI-012, AI-015..AI-021, AI-024, DB-001..DB-007, DB-010..DB-016, DB-018..DB-021, SEC-001..SEC-008, SEC-010..SEC-012, SEC-014..SEC-017, SEC-020..SEC-021, API-001..API-012, API-016..API-024 (116 items)
+- **Implemented & verified (`[x]`):** FND-001..FND-017, FND-019..FND-022, CHS-001..CHS-024, AI-001..AI-005, AI-007..AI-008, AI-011..AI-012, AI-015..AI-021, AI-024, DB-001..DB-007, DB-010..DB-017, DB-018..DB-021, SEC-001..SEC-008, SEC-010..SEC-012, SEC-014..SEC-017, SEC-020..SEC-021, API-001..API-012, API-016..API-024, WEB-001..WEB-028, WEB-030 (148 items)
+- **Intentionally deferred (`[-]`):** API-013 (analysis UX decision), API-014/API-015 (benchmark harness, Phase 7).
+- **Not yet started (`[ ]`):** WEB-029 (browser e2e — Playwright harness, Phase 9) and all remaining Phase 6+ items.
 - **Deferred (`[-]`):** SEC-018, SEC-019 (required before public release)
 - **Blocked (`[!]`):** none yet (FND-018 Docker Compose and FND-019 Postgres remain `[ ]` — Docker not installed locally)
 

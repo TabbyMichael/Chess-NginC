@@ -38,6 +38,15 @@ class IllegalMoveRequestError(Exception):
     """UCI unparsable, illegal, or bad mode/claim (mapped to 422)."""
 
 
+def _require_version(game: GameRow, expected_version: int) -> None:
+    """Reject writes based on a stale client snapshot (optimistic concurrency)."""
+    if game.version != expected_version:
+        raise StaleVersionError(
+            f"Game changed elsewhere: you sent version {expected_version} "
+            f"but the game is now at version {game.version}"
+        )
+
+
 class GameFinishedError(Exception):
     """State change requested on a finished game (mapped to 409)."""
 
@@ -93,8 +102,7 @@ def submit_move(
     repo = GameRepository(db)
     game = _require_game(repo, game_id, user_id)
     _require_active(game)
-    if game.version != expected_version:
-        raise StaleVersionError(f"Expected version {game.version}, have {expected_version}")
+    _require_version(game, expected_version)
     rules = ChessRules(game.fen)
     try:
         move = rules.apply_move(uci)
@@ -113,8 +121,7 @@ def undo_move(db: Session, game_id: int, user_id: int, expected_version: int) ->
     repo = GameRepository(db)
     game = _require_game(repo, game_id, user_id)
     _require_active(game)
-    if game.version != expected_version:
-        raise StaleVersionError(f"Expected version {game.version}, have {expected_version}")
+    _require_version(game, expected_version)
     moves = repo.get_moves(game_id, user_id)
     if not moves:
         raise IllegalMoveRequestError("No moves to undo")
@@ -181,8 +188,7 @@ def request_engine_move(
     _require_active(game)
     if game.mode != GameMode.COMPUTER.value:
         raise IllegalMoveRequestError("Engine moves require a computer game")
-    if game.version != expected_version:
-        raise StaleVersionError(f"Expected version {game.version}, have {expected_version}")
+    _require_version(game, expected_version)
     board = chess.Board(game.fen)
     if board.is_game_over():
         raise GameFinishedError("Game is over")
