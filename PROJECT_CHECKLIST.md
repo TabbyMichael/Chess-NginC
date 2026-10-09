@@ -13,17 +13,17 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 | ID | Requirement | Pri | Status | Evidence / Location |
 |----|-------------|-----|--------|---------------------|
 | FND-001 | Inspect repository and record initial state | P1 | [x] | Empty dir, no git, Python 3.14.2, Node v25.2.1, psql 14.19, no Docker. See IMPLEMENTATION_LOG 2026-10-09. |
-| FND-002 | Establish/verify Git repository | P1 | [x] | `git init -b main` completed; no commits yet. |
+| FND-002 | Establish/verify Git repository | P1 | [x] | `git init -b main` + root commit `18f8145`. |
 | FND-003 | Create the agreed directory structure | P1 | [ ] | Deferred until modules exist (per spec §5: add modules when functionality exists). |
-| FND-004 | README.md with setup instructions | P1 | [ ] | |
-| FND-005 | CONTRIBUTING.md | P1 | [ ] | |
-| FND-006 | docs/code-standards.md | P1 | [ ] | |
-| FND-007 | docs/architecture.md | P1 | [ ] | |
+| FND-004 | README.md with setup instructions | P1 | [x] | README.md (setup steps preliminary until toolchain lands). |
+| FND-005 | CONTRIBUTING.md | P1 | [x] | CONTRIBUTING.md (commit/PR standards + quality gates). |
+| FND-006 | docs/code-standards.md | P1 | [x] | docs/code-standards.md. |
+| FND-007 | docs/architecture.md | P1 | [x] | docs/architecture.md (module boundaries + decisions log). |
 | FND-008 | PROJECT_CHECKLIST.md | P1 | [x] | This file. |
-| FND-009 | IMPLEMENTATION_LOG.md | P1 | [ ] | |
-| FND-010 | TECHNICAL_DEBT_REGISTER.md | P1 | [ ] | |
-| FND-011 | Configure .gitignore | P0 | [ ] | Secrets must never enter the repo. |
-| FND-012 | .env.example without secrets | P0 | [ ] | |
+| FND-009 | IMPLEMENTATION_LOG.md | P1 | [x] | IMPLEMENTATION_LOG.md (session 2026-10-09 recorded). |
+| FND-010 | TECHNICAL_DEBT_REGISTER.md | P1 | [x] | TECHNICAL_DEBT_REGISTER.md (TD-001..TD-008). |
+| FND-011 | Configure .gitignore | P0 | [x] | .gitignore (Python/Node/env/secrets/Stockfish binaries). |
+| FND-012 | .env.example without secrets | P0 | [x] | .env.example (placeholders only, no real secrets). |
 | FND-013 | Python project metadata + dependency locking | P1 | [ ] | |
 | FND-014 | Node package metadata + lockfile | P1 | [ ] | |
 | FND-015 | Python lint/format/type-check config (Ruff, mypy) | P1 | [ ] | |
@@ -318,7 +318,7 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 ## Summary
 
 - **Total items:** 237
-- **Implemented & verified (`[x]`):** FND-001, FND-002, FND-008
+- **Implemented & verified (`[x]`):** FND-001..FND-002, FND-004..FND-012 (11 items)
 - **Deferred (`[-]`):** SEC-018, SEC-019 (required before public release)
 - **Blocked (`[!]`):** none yet (Docker-based FND-018/019 noted as environment-limited, still `[ ]`)
 
