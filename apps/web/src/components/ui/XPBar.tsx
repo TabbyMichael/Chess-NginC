@@ -1,4 +1,4 @@
-import { type HTMLAttributes, useEffect, useState } from 'react';
+import { type HTMLAttributes } from 'react';
 
 export type XPBarProps = HTMLAttributes<HTMLDivElement> & {
   level: number;
@@ -7,12 +7,7 @@ export type XPBarProps = HTMLAttributes<HTMLDivElement> & {
 };
 
 export function XPBar({ level, xp, maxXp, className }: XPBarProps) {
-  const [progress, setProgress] = useState(0);
-
-  useEffect(() => {
-    const pct = Math.min(100, Math.round((xp / maxXp) * 100));
-    setProgress(pct);
-  }, [xp, maxXp]);
+  const progress = Math.min(100, Math.max(0, Math.round((xp / maxXp) * 100)));
 
   return (
     <div className={`xp-container ${className}`}>

@@ -5,7 +5,7 @@
  * Gen Alpha makeover: animated pieces, capture explosions, check pulse,
  * last-move indicators, smooth square transitions.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type DragEvent } from 'react';
 
 import { allSquares, glyph, isLightSquare, parseFenPlacement, sideToMove } from '../lib/chess';
 
@@ -61,15 +61,15 @@ export default function Chessboard({
     if (key === 'Enter' || key === ' ') { handleSquareClick(square); }
     else if (key === 'Escape') { onSelect(null); setPendingPromotion(null); }
   }
-  function handleDragStart(square: string, event: any) {
+  function handleDragStart(square: string, event: DragEvent<HTMLButtonElement>) {
     if (disabled || status !== 'active') { event.preventDefault(); return; }
     onSelect(square);
   }
-  function handleDragOver(square: string, event: any) {
+  function handleDragOver(square: string, event: DragEvent<HTMLButtonElement>) {
     event.preventDefault();
     if (dragOver !== square) setDragOver(square);
   }
-  function handleDrop(to: string, event: any) {
+  function handleDrop(to: string, event: DragEvent<HTMLButtonElement>) {
     event.preventDefault();
     setDragOver(null);
     const from = selected;
