@@ -32,6 +32,10 @@ FastAPI application (api)
 | `identity` | Password hashing, sessions, authorization | Chess rules |
 | `history` | Saving/retrieving games | Engine search |
 | `benchmark` | Position suites, comparisons, metrics | Normal game state |
+| `analysis` | Stored evals, win%, graphs, jobs (consumes engine results) | Search algorithms or invented evals |
+| `classification` | Move labels from structured analysis only | Guessing without engine proof fields |
+| `tactics` | Pattern detectors over python-chess positions | Engine search or LLM judgement |
+| `coaching` | Grounded explanations citing stored fields | Inventing evals/variations |
 | `api` | HTTP schemas, status codes, request handling | Core chess algorithms |
 | `web` | User interactions and visual state | Trusted game outcomes |
 
@@ -39,6 +43,8 @@ FastAPI application (api)
 
 - The **API** never contains chess-search algorithms.
 - The **custom engine** never does HTTP or database queries.
+- The **analysis/classification/tactics/coaching** modules never invent chess facts:
+  they consume stored engine output (evals, PVs, patterns) and cite it.
 - The **frontend** never determines authoritative outcomes or validates AI moves.
 - Use **dependency injection** to provide engines and repositories to services.
 - Versioned API under `/api/v1`; all contracts explicit, validated, documented.

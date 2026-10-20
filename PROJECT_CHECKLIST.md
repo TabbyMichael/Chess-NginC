@@ -324,4 +324,68 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 - **Deferred (`[-]`):** SEC-018, SEC-019 (required before public release)
 - **Blocked (`[!]`):** none.
 
+---
+
+## Phase 9 — Game Analysis Engine + AI Coach (beats Chess.com Game Review)
+
+> Design rule: **Engine calculates, Coach teaches.** Stockfish supplies chess facts
+> (evals, best lines, MultiPV); classification consumes structured analysis only;
+> coaching cites stored fields and never invents evaluations. New modules follow
+> `docs/architecture.md`: `analysis`/`classification`/`tactics`/`coaching` never
+> contain search; `engine` never does HTTP/DB; `api` never contains chess algorithms.
+> GPL-3.0: Stockfish binary is never bundled (REL-011); provenance in `stockfish.py`.
+
+### Stage 1 — Analysis foundation (engine truth layer)
+
+| ID | Requirement | Pri | Status | Evidence / Location |
+|----|-------------|-----|--------|---------------------|
+| ANL-001 | Engine provider interface (custom + Stockfish pluggable) | P1 | [ ] | `app/engine/provider.py`: `EngineProvider.analyse(fen, depth, multipv)` → structured result with principal variations |
+| ANL-002 | Stockfish MultiPV support (best + 2nd/3rd lines) | P1 | [ ] | `stockfish.py`: MultiPV=3-5, returns per-line `move/score/pv`; bounded |
+| ANL-003 | Warm Stockfish worker pool (no spawn-per-move) | P1 | [ ] | `app/engine/pool.py`: 2-4 persistent UCI processes, bounded queue, graceful fallback |
+| ANL-004 | Win-probability model (cp + mate → win%) | P1 | [ ] | `app/analysis/winprob.py`: sigmoid `50*(1+tanh(cp/350))`, mate-aware, tested vs known positions |
+| ANL-005 | Eval cache (FEN+depth+MultiPV → result) | P2 | [ ] | DB `move_evaluations` + in-memory LRU; re-review instant |
+| ANL-006 | Two-pass analysis (fast sweep + deep critical moments) | P2 | [ ] | fast depth 12-15 all moves; deep depth 20-25 on swings >150cp |
+| ANL-007 | Higher Stockfish bounds for review (depth ≤25, time ≤5s) | P1 | [ ] | separate `REVIEW_MAX_*` bounds; play path keeps tight bounds |
+| ANL-008 | Async analysis jobs (no blocked HTTP) | P1 | [ ] | `analysis_jobs` table + `POST /games/{id}/analyze` → job_id; progress endpoint |
+
+### Stage 2 — Move classification (explainable labels)
+
+| ID | Requirement | Pri | Status | Evidence / Location |
+|----|-------------|-----|--------|---------------------|
+| CLS-001 | Centipawn-loss + win%-drop per move | P1 | [ ] | `app/classification/loss.py`: before/after eval from engine truth |
+| CLS-002 | Label rules: brilliant/great/best/excellent/good/inaccuracy/mistake/blunder/missed-win | P1 | [ ] | `app/classification/labels.py`: published thresholds, sacrifice + only-move + obviousness checks |
+| CLS-003 | ELO-aware thresholds (same cp loss ≠ same label) | P1 | [ ] | scale by player rating + position complexity + game phase |
+| CLS-004 | Fair accuracy model (expected-loss calibrated) | P1 | [ ] | `accuracy = 100*exp(-actual/expected(rating, complexity))` |
+| CLS-005 | Every label stores proof fields | P1 | [ ] | `before_cp/after_cp/best_line/played_line/pattern/confidence` persisted |
+
+### Stage 3 — Tactics detection (pure python-chess)
+
+| ID | Requirement | Pri | Status | Evidence / Location |
+|----|-------------|-----|--------|---------------------|
+| TAC-001 | Fork / pin / skewer / discovered / hanging-piece detectors | P1 | [ ] | `app/tactics/patterns.py`, before-vs-after diff (created vs missed) |
+| TAC-002 | Mate-in-1/2 threat + back-rank + trapped-piece detectors | P2 | [ ] | same module, tested on known puzzles |
+| TAC-003 | Sacrifice evaluator (material given vs compensation) | P2 | [ ] | distinguishes real sacs from blunders that look flashy |
+
+### Stage 4 — Coaching (rule templates first, LLM later)
+
+| ID | Requirement | Pri | Status | Evidence / Location |
+|----|-------------|-----|--------|---------------------|
+| COA-001 | Grounded rule-based explanations per label | P1 | [ ] | templates cite stored eval fields only; `POST /coach/explain` |
+| COA-002 | ELO-calibrated tone (rookie plain+emoji → expert lines+ideas) | P1 | [ ] | `coach_level` param; max 3 key moments for rookies |
+| COA-003 | Retry-the-move before revealing | P2 | [ ] | frontend flow + `POST /coach/retry` check endpoint |
+| COA-004 | Opening coach (ECO name, deviation, plan) | P2 | [ ] | `app/openings/`: book + theory comparison |
+| COA-005 | LLM explainer behind grounding guardrail | P3 | [ ] | LLM receives Stockfish JSON only; output validated against stored fields |
+| COA-006 | AI chat over a position with PV citations | P3 | [ ] | `POST /coach/ask`; refuses when no analysis present |
+
+### Stage 5 — Review UX + training loop
+
+| ID | Requirement | Pri | Status | Evidence / Location |
+|----|-------------|-----|--------|---------------------|
+| REV-001 | PGN import endpoint | P1 | [ ] | `POST /games/import-pgn`; validates via python-chess |
+| REV-002 | Review payload (moves + labels + lines + graph) | P1 | [ ] | `GET /games/{id}/review`: eval graph, critical moments, accuracy |
+| REV-003 | Review UI: eval bar, arrows, variations, retry, accuracy dial | P1 | [ ] | web `game-review/` pages; Gen-Alpha neon style |
+| REV-004 | Weakness tracking across games | P2 | [ ] | `player_profiles`: recurring patterns (e.g. "misses back-rank") |
+| REV-005 | Personalised puzzles from your blunders | P3 | [ ] | `app/training/`: positions where you erred, retry as exercises |
+| REV-006 | ELO-aware play (UCI_Elo + human-like weakening) | P2 | [ ] | personalities for <1000; node caps + top-3 sampling |
+
 > Statuses must be updated in this file only after the corresponding acceptance criteria are met and checks pass.

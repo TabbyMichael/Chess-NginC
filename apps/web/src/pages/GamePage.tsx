@@ -1,13 +1,18 @@
 /**
  * Game page (WEB-010..019, WEB-024/025): board, move submission, undo,
  * resign, draw-claim, engine moves, resume via GET game.
+ * Gen Alpha makeover: animated board, capture effects, checkmate celebrations,
+ * sound-ready, haptics-ready, vibrant game UI.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
+import { motion } from 'framer-motion';
 
 import Chessboard from '../components/Chessboard';
 import GameStatusBanner from '../components/GameStatus';
 import MoveHistory from '../components/MoveHistory';
+import { Button } from '../components/ui/Button';
+import { Card } from '../components/ui/Card';
 import { ApiError, api } from '../lib/api-client';
 import { capturedPieces } from '../lib/chess';
 import type { GameResponse } from '../lib/api-types';
@@ -111,65 +116,91 @@ export default function GamePage() {
   const finished = game.status !== 'active';
 
   return (
-    <main className="game-page">
-      <Link to="/">← All games</Link>
-      <h1>
-        Game #{game.id} ({game.mode})
-      </h1>
+    <motion.main
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="game-page w-full max-w-5xl px-4 py-6"
+    >
+      <Link to="/" className="text-neon-blue hover:text-neon-pink mb-md block">
+        ← All games
+      </Link>
+      <h1 className="mb-sm">Game #{game.id}</h1>
       <GameStatusBanner status={game.status} inCheck={inCheck} />
       {error && (
-        <p role="alert" className="error">
+        <p role="alert" className="error mb-md">
           {error}
         </p>
       )}
       <div className="game-layout">
-        <Chessboard
-          fen={game.fen}
-          status={game.status}
-          selected={selected}
-          onSelect={setSelected}
-          onMove={handleMove}
-          disabled={busy}
-        />
-        <aside aria-label="game panel">
-          <h2>Moves</h2>
-          <MoveHistory moves={game.moves} />
-          <section aria-label="captured pieces">
-            <p className="hint">Captured by White</p>
-            <p className="captures" aria-label="captured by white">
-              {captures.capturedByWhite.join(' ') || '—'}
-            </p>
-            <p className="hint">Captured by Black</p>
-            <p className="captures" aria-label="captured by black">
-              {captures.capturedByBlack.join(' ') || '—'}
-            </p>
-          </section>
-          <div className="controls">
-            <button
-              type="button"
-              disabled={busy || finished || game.moves.length === 0}
+        <div className="game-main">
+          <Chessboard
+            fen={game.fen}
+            status={game.status}
+            selected={selected}
+            onSelect={setSelected}
+            onMove={handleMove}
+            disabled={busy}
+            lastMove={
+              game.moves.length > 0
+                ? {
+                    from: game.moves[game.moves.length - 1].uci.slice(0, 2),
+                    to: game.moves[game.moves.length - 1].uci.slice(2, 4),
+                  }
+                : null
+            }
+            inCheck={inCheck}
+          />
+        </div>
+        <aside className="game-sidebar" aria-label="game panel">
+          <Card>
+            <h2 className="text-xl font-bold mb-md">Moves</h2>
+            <MoveHistory moves={game.moves} />
+          </Card>
+          <Card className="mt-lg">
+            <h2 className="text-xl font-bold mb-md">Captured</h2>
+            <section aria-label="captured pieces" className="captures-section">
+              <p className="label">Captured by White</p>
+              <div className="captured-pieces" aria-label="captured by white">
+                {captures.capturedByWhite.map((piece, idx) => (
+                  <span key={idx} className="captured-piece" title={piece}>
+                    {piece}
+                  </span>
+                ))}
+                {captures.capturedByWhite.length === 0 && <span className="text-ink-faint">—</span>}
+              </div>
+              <p className="label mt-sm">Captured by Black</p>
+              <div className="captured-pieces" aria-label="captured by black">
+                {captures.capturedByBlack.map((piece, idx) => (
+                  <span key={idx} className="captured-piece" title={piece}>
+                    {piece}
+                  </span>
+                ))}
+                {captures.capturedByBlack.length === 0 && <span className="text-ink-faint">—</span>}
+              </div>
+            </section>
+          </Card>
+          <div className="controls mt-lg">
+            <Button
+              variant="primary"
               onClick={() => void run((g) => api.undoMove(gameId, { expected_version: g.version }))}
+              disabled={busy || finished || game.moves.length === 0}
+              className="w-full"
             >
               Undo
-            </button>
-            <button
-              type="button"
-              disabled={busy || finished || game.moves.length === 0}
-              title="Undo every move to restart this game"
+            </Button>
+            <Button
+              variant="ghost"
               onClick={async () => {
                 if (!game) return;
                 setBusy(true);
                 setError(null);
                 try {
-                  // The API has no bulk-reset; undo until the server reports
-                  // an empty move list (WEB-019). Loop on the refetched state,
-                  // not the original snapshot.
                   let current = game;
                   while (current.moves.length > 0) {
                     const next = await api.undoMove(gameId, {
                       expected_version: current.version,
                     });
-                    if (next.moves.length >= current.moves.length) break; // no progress
+                    if (next.moves.length >= current.moves.length) break;
                     current = next;
                   }
                   setGame(current);
@@ -180,27 +211,30 @@ export default function GamePage() {
                   setBusy(false);
                 }
               }}
+              disabled={busy || finished || game.moves.length === 0}
+              className="w-full mt-sm"
             >
               Reset to start
-            </button>
-            <button
-              type="button"
-              disabled={busy || finished}
+            </Button>
+            <Button
+              variant="danger"
               onClick={() => void run(() => api.resignGame(gameId))}
+              disabled={busy || finished}
+              className="w-full mt-sm"
             >
               Resign
-            </button>
-            <button
-              type="button"
-              disabled={busy || finished}
+            </Button>
+            <Button
+              variant="brand"
               onClick={() => void run(() => api.claimDraw(gameId))}
+              disabled={busy || finished}
+              className="w-full mt-sm"
             >
               Claim draw
-            </button>
+            </Button>
             {game.mode === 'computer' && (
-              <button
-                type="button"
-                disabled={busy || finished}
+              <Button
+                variant="primary"
                 onClick={() =>
                   void run((g) =>
                     api.engineMove(gameId, {
@@ -210,17 +244,18 @@ export default function GamePage() {
                     }),
                   )
                 }
+                disabled={busy || finished}
+                className="w-full mt-sm"
               >
                 Engine move (depth {initialDepth})
-              </button>
+              </Button>
             )}
           </div>
-          <p className="hint">
-            Click a piece, then its destination. Promotions ask which piece. The server validates
-            every move.
+          <p className="hint mt-lg text-center text-xs text-ink-soft">
+            Click a piece, then its destination. Promotions ask which piece.
           </p>
         </aside>
       </div>
-    </main>
+    </motion.main>
   );
 }
