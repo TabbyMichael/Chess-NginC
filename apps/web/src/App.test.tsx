@@ -37,7 +37,7 @@ describe('App routing (WEB-004/005/006/008)', () => {
     vi.spyOn(api, 'listGames').mockResolvedValueOnce([]);
     renderApp('/');
     expect(await screen.findByText('a@b.co')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'New game' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Your Games' })).toBeInTheDocument();
   });
 
   it('logs in from the login form and lands on the dashboard', async () => {
@@ -50,7 +50,10 @@ describe('App routing (WEB-004/005/006/008)', () => {
     await user.type(screen.getByLabelText('Password'), 'supersecret1');
     await user.click(screen.getByRole('button', { name: 'Log in' }));
 
-    expect(await screen.findByText('a@b.co')).toBeInTheDocument();
+    // Wait for the Dashboard itself (not the TopNav email, which renders
+    // before navigate('/') mounts the Dashboard and fires listGames).
+    expect(await screen.findByRole('heading', { name: 'Your Games' })).toBeInTheDocument();
+    expect(screen.getByText('a@b.co')).toBeInTheDocument();
     expect(login).toHaveBeenCalledWith({ email: 'a@b.co', password: 'supersecret1' });
     expect(me).toHaveBeenCalled();
     expect(list).toHaveBeenCalled();

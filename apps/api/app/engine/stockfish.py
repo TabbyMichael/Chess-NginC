@@ -17,6 +17,11 @@ import chess
 import chess.engine
 
 from app.engine.domain import EngineConfig, EngineResult
+from app.engine.provider import (
+    AnalyseRequest,
+    AnalysisResult,
+    PrincipalVariation,
+)
 from app.games.domain import Color
 
 # Provenance (BEN-001/BEN-002): official upstream + packaged version.
@@ -30,6 +35,11 @@ STOCKFISH_APT_VERSION = "16-1build1"  # Ubuntu noble/universe at time of writing
 STOCKFISH_MAX_DEPTH = 15
 STOCKFISH_MAX_TIME_MS = 1000
 
+# Review bounds (ANL-007): post-game analysis may search deeper/longer than
+# live play. Still bounded — never unbounded. Play path uses the tight bounds.
+REVIEW_MAX_DEPTH = 25
+REVIEW_MAX_TIME_MS = 5000
+
 
 @dataclass(frozen=True)
 class StockfishConfig:
@@ -40,15 +50,23 @@ class StockfishConfig:
     max_time_ms: int = 500
     threads: int = 1
     hash_mb: int = 16
+    multipv: int = 1  # ANL-002: principal variations to return (1-5)
 
-    def bounded(self) -> StockfishConfig:
-        """Return a copy clamped to the hard resource bounds."""
+    def bounded(self, *, for_review: bool = False) -> StockfishConfig:
+        """Return a copy clamped to the hard resource bounds.
+
+        Review analyses (ANL-007) get deeper bounds than live play so
+        post-game truth is stronger while interactive play stays snappy.
+        """
+        max_depth = REVIEW_MAX_DEPTH if for_review else STOCKFISH_MAX_DEPTH
+        max_time = REVIEW_MAX_TIME_MS if for_review else STOCKFISH_MAX_TIME_MS
         return StockfishConfig(
             path=self.path,
-            max_depth=max(1, min(self.max_depth, STOCKFISH_MAX_DEPTH)),
-            max_time_ms=max(1, min(self.max_time_ms, STOCKFISH_MAX_TIME_MS)),
+            max_depth=max(1, min(self.max_depth, max_depth)),
+            max_time_ms=max(1, min(self.max_time_ms, max_time)),
             threads=1,  # single-threaded: keep concurrency bounded (TD-007)
             hash_mb=max(1, min(self.hash_mb, 64)),
+            multipv=max(1, min(self.multipv, 5)),
         )
 
 
@@ -58,6 +76,112 @@ class StockfishUnavailableError(Exception):
 
 class StockfishError(Exception):
     """Stockfish crashed or misbehaved during analysis."""
+
+
+class StockfishProvider:
+    """Stockfish-backed EngineProvider (ANL-001/ANL-002/ANL-007).
+
+    Stateless w.r.t. UCI processes for now: each analyse call opens a
+    short-lived engine (ANL-003's warm pool swaps in behind this seam).
+    """
+
+    name = "stockfish"
+
+    def __init__(self, config: StockfishConfig | None = None, *, for_review: bool = False) -> None:
+        self._config = config or StockfishConfig()
+        self._for_review = for_review
+
+    def analyse(self, request: AnalyseRequest) -> AnalysisResult:
+        """Analyse a position, returning up to ``multipv`` ranked lines."""
+        cfg = StockfishConfig(
+            path=self._config.path,
+            max_depth=request.depth,
+            max_time_ms=request.max_time_ms,
+            threads=self._config.threads,
+            hash_mb=self._config.hash_mb,
+            multipv=request.multipv,
+        ).bounded(for_review=self._for_review)
+        binary = resolve_binary(cfg.path)
+        start = time.time()
+        try:
+            engine = chess.engine.SimpleEngine.popen_uci(binary)
+        except Exception as exc:
+            msg = f"Could not start Stockfish at {binary!r}: {exc}"
+            raise StockfishUnavailableError(msg) from exc
+        try:
+            with contextlib.suppress(chess.engine.EngineError):
+                engine.configure(
+                    {"Threads": cfg.threads, "Hash": cfg.hash_mb, "MultiPV": cfg.multipv}
+                )
+            board = chess.Board(request.fen)
+            limit = chess.engine.Limit(depth=cfg.max_depth, time=cfg.max_time_ms / 1000.0)
+            try:
+                infos = engine.analyse(board, limit, multipv=cfg.multipv)
+            except chess.engine.EngineTerminatedError as exc:
+                raise StockfishError(f"Stockfish terminated during analysis: {exc}") from exc
+            elapsed_ms = int((time.time() - start) * 1000)
+            if isinstance(infos, dict):
+                infos = [infos]
+            dict_infos = [info for info in infos if isinstance(info, dict)]
+            lines = tuple(_line_from_info(info, board, request.for_color) for info in dict_infos)
+            depth = max(
+                (int(i.get("depth", cfg.max_depth)) for i in dict_infos), default=cfg.max_depth
+            )
+            nodes = max((int(i.get("nodes", 0)) for i in dict_infos), default=0)
+            return AnalysisResult(
+                fen=request.fen,
+                lines=lines,
+                depth=depth,
+                nodes_searched=nodes,
+                time_ms=elapsed_ms,
+                provider=self.name,
+            )
+        finally:
+            with contextlib.suppress(Exception):
+                engine.quit()
+
+
+def _line_from_info(
+    info: chess.engine.InfoDict, board: chess.Board, for_color: Color
+) -> PrincipalVariation:
+    """Convert one MultiPV info dict to a PrincipalVariation (side-to-move POV)."""
+    pv_moves = info.get("pv") or []
+    move = pv_moves[0].uci() if pv_moves else ""
+    score_obj = info.get("score")
+    score_cp, mate_in = _score_parts(score_obj, board, for_color)
+    return PrincipalVariation(
+        move=move,
+        score_cp=score_cp,
+        mate_in=mate_in,
+        pv=tuple(m.uci() for m in pv_moves),
+    )
+
+
+def _score_parts(
+    score_obj: chess.engine.PovScore | None, board: chess.Board, for_color: Color
+) -> tuple[int, int | None]:
+    """Normalize a POV score to (centipawns, mate_in) from for_color's view."""
+    if score_obj is None:
+        return 0, None
+    try:
+        pov = score_obj.pov(board.turn)
+        if pov.is_mate():
+            mate_in = pov.mate()
+            if mate_in is None:
+                return 0, None
+            value = 20000 - abs(mate_in) * 10
+            cp = value if mate_in > 0 else -value
+            if (board.turn == chess.WHITE) != (for_color == Color.WHITE):
+                cp = -cp
+                mate_in = -mate_in
+            return cp, mate_in
+        cp_obj = pov.score()
+        cp = int(cp_obj) if cp_obj is not None else 0
+        if (board.turn == chess.WHITE) != (for_color == Color.WHITE):
+            cp = -cp
+        return cp, None
+    except Exception:
+        return 0, None
 
 
 def resolve_binary(configured_path: str = "") -> str:

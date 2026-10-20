@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     stockfish_path: str = ""
     stockfish_depth_limit: int = 15
     stockfish_time_limit_ms: int = 1000
+    # Hosted Stockfish API (stockfishapi.com): cloud engine fallback when no
+    # local binary exists. Key comes ONLY from env (.env, never committed);
+    # empty = cloud provider disabled. Never log or return the key.
+    stockfish_api_key: str = ""
+    stockfish_api_base_url: str = "https://stockfishapi.com/v1"
     log_level: str = "INFO"
 
     model_config = SettingsConfigDict(env_file=".env")
