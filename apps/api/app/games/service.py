@@ -70,9 +70,7 @@ def _require_active(game: GameRow) -> None:
         raise GameFinishedError(f"Game is {game.status}")
 
 
-def _award_points(
-    db: Session, game: GameRow, reason: str, move_number: int | None = None
-) -> None:
+def _award_points(db: Session, game: GameRow, reason: str, move_number: int | None = None) -> None:
     """Record a point award and bump the user's running total.
 
     Computer games only. Move awards are idempotent per (game, move slot),

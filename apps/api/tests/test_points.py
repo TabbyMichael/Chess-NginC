@@ -98,9 +98,7 @@ def test_local_games_award_nothing(authed_client: tuple[TestClient, dict]) -> No
     assert _points(client) == 0
 
 
-def test_checkmate_win_bonus(
-    authed_client: tuple[TestClient, dict], db: Session
-) -> None:
+def test_checkmate_win_bonus(authed_client: tuple[TestClient, dict], db: Session) -> None:
     """User (White) delivers checkmate: +1 move and +10 win, exactly once."""
     client, _ = authed_client
     game = _create(authed_client)
