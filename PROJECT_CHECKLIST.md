@@ -158,6 +158,7 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 | API-022 | Generate frontend API types | P1 | [x] | apps/web/src/lib/api-types.ts + contract test. |
 | API-023 | API integration tests | P1 | [x] | tests/test_games.py (9 tests, live Postgres). |
 | API-024 | All protected endpoints enforce auth | P0 | [x] | get_current_user on all game routes; 401 tested. |
+| API-025 | Online human-vs-human endpoints (REST + WebSocket) | P1 | [x] | /online/queue, /online/games/*, /online/ws (docs/online-play-plan.md Phases 1–3); 27 tests incl. WS handshake guards. |
 
 ---
 
@@ -195,6 +196,7 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 | WEB-028 | Frontend unit tests | P1 | [x] | 43 vitest tests (App/GamePage/chess/api-types) |
 | WEB-029 | Browser e2e tests | P1 | [ ] | Deferred: needs Playwright harness (Phase 9) |
 | WEB-030 | Verify production build | P1 | [x] | `npx vite build` succeeds, 274 kB / 87 kB gzip |
+| WEB-031 | Online lobby + live online board | P1 | [x] | /lobby queue UI with polling, /online/:id board over WebSocket + REST fallback (online-plan Phase 4); 11 vitest tests. |
 
 ---
 
@@ -317,8 +319,8 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 
 ## Summary
 
-- **Total items:** 237
-- **Implemented & verified (`[x]`):** FND-001..FND-022, CHS-001..CHS-024, AI-001..AI-005, AI-007..AI-008, AI-011..AI-012, AI-015..AI-021, AI-024, DB-001..DB-007, DB-010..DB-017, DB-018..DB-021, SEC-001..SEC-008, SEC-010..SEC-012, SEC-014..SEC-017, SEC-020..SEC-021, API-001..API-012, API-016..API-024, WEB-001..WEB-028, WEB-030, BEN-001..BEN-013, BEN-018..BEN-020, BEN-022, QA-001..QA-026, REL-001..REL-017 (209 items)
+- **Total items:** 239
+- **Implemented & verified (`[x]`):** FND-001..FND-022, CHS-001..CHS-024, AI-001..AI-005, AI-007..AI-008, AI-011..AI-012, AI-015..AI-021, AI-024, DB-001..DB-007, DB-010..DB-017, DB-018..DB-021, SEC-001..SEC-008, SEC-010..SEC-012, SEC-014..SEC-017, SEC-020..SEC-021, API-001..API-012, API-016..API-025, WEB-001..WEB-028, WEB-030..WEB-031, BEN-001..BEN-013, BEN-018..BEN-020, BEN-022, QA-001..QA-026, REL-001..REL-017 (211 items)
 - **Intentionally deferred (`[-]`):** API-013 (analysis UX decision), API-014/API-015 (benchmark harness, Phase 7).
 - **Not yet started (`[ ]`):** WEB-029 (browser e2e — Playwright harness), BEN-014..017 + BEN-021, and remaining Phase 6 P2/P3 items.
 - **Deferred (`[-]`):** SEC-018, SEC-019 (required before public release)

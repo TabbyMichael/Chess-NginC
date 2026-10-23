@@ -38,7 +38,7 @@ export interface ErrorResponse {
   detail: string;
 }
 
-export type GameMode = 'local' | 'computer';
+export type GameMode = 'local' | 'computer' | 'online';
 
 export type GameStatus = 'active' | 'checkmate' | 'stalemate' | 'draw' | 'resigned' | 'abandoned';
 
@@ -55,10 +55,23 @@ export interface GameResponse {
   fen: string;
   version: number;
   moves: MoveResponse[];
+  /** Color seats exist only on online games (online-plan §12). */
+  white_user_id?: number | null;
+  black_user_id?: number | null;
+}
+
+export type QueueStatus = 'idle' | 'queued' | 'matched';
+
+export interface QueueResponse {
+  status: QueueStatus;
+  game_id?: number | null;
+  /** 'w' or 'b' when matched. */
+  color?: string | null;
 }
 
 export interface CreateGameRequest {
-  mode?: GameMode;
+  /** 'online' games are created by the lobby queue, never by this request. */
+  mode?: Exclude<GameMode, 'online'>;
 }
 
 export interface MoveRequest {

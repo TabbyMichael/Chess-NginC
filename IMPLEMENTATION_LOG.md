@@ -484,3 +484,56 @@ public release; optional live `docker compose up` smoke when disk allows.
 
 **Next recommended task.** WEB-029 Playwright browser e2e (the last P1 gap); then
 Phase 6 AI enhancements and BEN-014..017/BEN-021.
+
+---
+
+## Session 2026-10-23 (l) — Online human-vs-human play (online-play-plan Phases 1–4)
+
+**Scope.** The biggest missed product feature: two accounts queue, get paired,
+and play each other with the same server-authoritative core. Implemented
+Step 0 (shared move kernel), Phase 1 (migration + online service), Phase 2
+(lobby + REST), Phase 3 (WebSocket), Phase 4 (frontend lobby & live board).
+
+**What was built.**
+- Step 0 refactor (no behavior change): `apply_and_store_move` kernel + public
+  `require_version/require_active/require_not_online` + per-user
+  `award_points(db, user_id, …)` in `app/games/service.py`; terminal awards
+  unified in `sync_status` (computer + online seats); `get_by_participant`
+  (OR-of-seats) in `game_repository`; registry-driven test wipe + ephemeral
+  state reset fixtures in `conftest.py`.
+- Migration `a1c7e4f9b2d6`: `games.white_user_id` / `games.black_user_id`
+  (nullable, indexed, FKs) + `GameMode.ONLINE`. `user_id` mirrors White on
+  online games so every legacy owner-scoped query keeps working (plan §12).
+- `app/games/online_service.py`: turn-checked moves, resign (loss/win seats),
+  position-based draw claims (both seats +5), participant-scoped get/list.
+  `POST /games` now refuses `mode=online` (422) — only the lobby creates them.
+- `app/games/lobby.py` (in-process queue, duplicate guard, random colors) +
+  `/online/queue` POST/DELETE/GET, `/online/games*` REST routes with per-user
+  move rate limiting (`MOVE_RATE_LIMIT_PER_MINUTE`, 429) and same-origin guards.
+- `app/games/hub.py` + `GET /online/ws`: cookie-auth handshake with close codes
+  4400/4401/4403, 4 KB frame cap, 10 msg/s, session-per-message, `game_state`
+  broadcasts to both seats; REST stays the authority (plan §6.2).
+- Frontend: `QueueResponse`/seat types, online api-client methods, `Delete`
+  support, `lib/online-ws.ts` (backoff reconnect + heartbeat), `/lobby` and
+  `/online/:id` pages (turn-gated board, REST polling fallback, resign/draw),
+  Dashboard “Online match” mode routes to the lobby.
+
+**Tests.** Backend: +27 (11 service, 10 REST/lobby incl. create-mode guard,
+6 WebSocket handshake/broadcast/disconnect); full suite 161 → 188 green.
+OpenAPI contract test now requires the six /online paths. Frontend: +11
+vitest (lobby 4, online board 7 with faked socket); suite 70 → 81 green.
+
+**Gates.** ruff check/format, mypy (47 files), `alembic upgrade head` +
+`alembic check`, full pytest; eslint, `tsc --noEmit`, vitest, `vite build`
+— all pass locally (CI runs the same commands).
+
+**Decisions / known limits.**
+- D6 (architecture): lobby, socket hub, rate buckets are single-process
+  state islands; restarts drop matchmaking but never games. Multi-replica
+  needs Redis/pubsub — recorded as accepted debt.
+- WS `opponent_left` is advisory: a player leaving mid-game does not forfeit
+  (no clocks in v1; plan leaves timeouts to a later phase).
+
+**Next recommended task.** Online Phase 5 (restart-drain messaging, replay
+protection via game move caps) + WEB-029 Playwright e2e covering the lobby
+flow; then Track B (Game Analysis, Phase 9).

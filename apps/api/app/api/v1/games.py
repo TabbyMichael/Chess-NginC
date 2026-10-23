@@ -6,9 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.v1.deps import enforce_same_origin, get_current_user, get_db_session
+from app.api.v1.serializers import as_http_exception, to_game_response
 from app.games import service as game_service
 from app.games.service import (
-    GameDetail,
     GameFinishedError,
     GameNotFoundError,
     IllegalMoveRequestError,
@@ -22,7 +22,6 @@ from .schemas import (
     ErrorResponse,
     GameResponse,
     MoveRequest,
-    MoveResponse,
     VersionRequest,
 )
 
@@ -34,25 +33,12 @@ _CurrentUser = Depends(get_current_user)  # noqa: E402
 _SameOrigin = Depends(enforce_same_origin)  # noqa: E402
 
 
-def _to_response(detail: GameDetail) -> GameResponse:
-    return GameResponse(
-        id=detail.game.id,
-        mode=detail.game.mode,
-        status=detail.game.status,
-        fen=detail.game.fen,
-        version=detail.game.version,
-        moves=[MoveResponse(uci=m.uci, san=m.san, move_number=m.move_number) for m in detail.moves],
-    )
+def _to_response(detail: game_service.GameDetail) -> GameResponse:
+    return to_game_response(detail)
 
 
 def _map_errors(exc: Exception) -> HTTPException:
-    if isinstance(exc, GameNotFoundError):
-        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
-    if isinstance(exc, (StaleVersionError, GameFinishedError)):
-        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
-    if isinstance(exc, IllegalMoveRequestError):
-        return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc))
-    raise exc  # pragma: no cover - unexpected
+    return as_http_exception(exc)
 
 
 @router.post(

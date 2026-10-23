@@ -100,3 +100,15 @@ class GameResponse(BaseModel):
     fen: str
     version: int
     moves: list[MoveResponse] = Field(default_factory=list)
+    # Online games only: the color seats. The frontend derives "am I White?"
+    # from white_user_id === me.id, never a per-request echoed flag (§8).
+    white_user_id: int | None = None
+    black_user_id: int | None = None
+
+
+class QueueResponse(BaseModel):
+    """Lobby queue state (online-plan §5)."""
+
+    status: str  # 'idle' | 'queued' | 'matched'
+    game_id: int | None = None
+    color: str | None = None  # 'w' | 'b' when matched

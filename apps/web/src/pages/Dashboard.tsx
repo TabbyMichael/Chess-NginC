@@ -19,11 +19,13 @@ import { Card } from '../components/ui/Card';
 const MODE_LABELS: Record<GameMode, string> = {
   local: 'Two players',
   computer: 'vs Computer',
+  online: 'Online match',
 };
 
 const MODE_DESCRIPTIONS: Record<GameMode, string> = {
   local: 'Pass and play on one board',
   computer: 'Battle the Stockfish engine',
+  online: 'Get matched against another player',
 };
 
 const DIFFICULTIES = [
@@ -83,6 +85,11 @@ export default function Dashboard() {
   }, [games]);
 
   async function handleCreate() {
+    // Online games come from the lobby queue, never from POST /games.
+    if (mode === 'online') {
+      navigate('/lobby');
+      return;
+    }
     setCreating(true);
     setError(null);
     try {
@@ -198,7 +205,9 @@ export default function Dashboard() {
               ? 'Creating…'
               : mode === 'computer'
                 ? `Start game vs Computer (${difficultyLabel})`
-                : 'Start two-player game'}
+                : mode === 'online'
+                  ? 'Go to the lobby'
+                  : 'Start two-player game'}
           </Button>
         </Card>
 
@@ -224,7 +233,7 @@ export default function Dashboard() {
                 const status = STATUS_META[g.status as GameStatus] ?? STATUS_META.active;
                 return (
                   <li key={g.id}>
-                    <Link to={`/games/${g.id}`}>
+                    <Link to={g.mode === 'online' ? `/online/${g.id}` : `/games/${g.id}`}>
                       <span className="game-id">Game #{g.id}</span>
                       <span className="game-mode">{MODE_LABELS[g.mode]}</span>
                       <span className={status.badge}>{status.label}</span>

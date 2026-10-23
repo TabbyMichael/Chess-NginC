@@ -1,9 +1,9 @@
 """Shared test fixtures: live-Postgres DB session and authed API clients."""
 
 import os
+from collections.abc import Generator
 
 import pytest
-import sqlalchemy
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -12,7 +12,6 @@ import app.models  # noqa: F401  (register tables on Base.metadata)
 from app.api.v1.deps import get_db_session, reset_rate_limits
 from app.core.database import Base
 from app.main import app
-from app.models.session import Session as SessionModel
 
 # Env wins (CI injects `database_url` with credentials), dev URL fallback —
 # same convention as alembic/env.py; the hardcoded default has no password
@@ -59,28 +58,17 @@ def client(db: Session) -> TestClient:
 
 
 def _wipe(db: Session) -> None:
-    """Wipe domain tables in FK-safe order (children first; skip if absent).
+    """Wipe every registered table in FK-safe (reverse-dependency) order.
 
-    The db_session fixture in test_game_repository.py manages its own schema
-    lifecycle, so this autouse wipe may run before tables exist — tolerate
-    missing tables.
+    Registry-driven so a new model cannot silently escape cleanup (Step 0.4).
+    Tolerates missing tables: the db_session fixture in
+    test_game_repository.py manages its own schema lifecycle.
     """
     from sqlalchemy.exc import ProgrammingError
 
-    from app.models.engine_run import EngineRun
-    from app.models.game import Game
-    from app.models.game_move import GameMove
-    from app.models.password_reset_token import PasswordResetToken
-    from app.models.point_award import PointAward
-
     try:
-        db.query(EngineRun).delete()
-        db.query(GameMove).delete()
-        db.query(PointAward).delete()
-        db.query(Game).delete()
-        db.query(PasswordResetToken).delete()
-        db.query(SessionModel).delete()
-        db.execute(sqlalchemy.text("DELETE FROM users"))
+        for table in reversed(Base.metadata.sorted_tables):
+            db.execute(table.delete())
         db.commit()
     except ProgrammingError:
         db.rollback()
@@ -94,6 +82,25 @@ def _clean_tables(db: Session) -> None:
     _wipe(db)
 
 
+@pytest.fixture(autouse=True)
+def _clean_ephemeral_state() -> Generator[None, None, None]:
+    """Reset in-process state islands between tests (lobby, hubs, limiters).
+
+    The online feature keeps queue + socket state in the process by design
+    (online-plan §2/§5); without this reset tests leak pairings into
+    each other.
+    """
+    from app.games import hub, lobby
+
+    lobby.reset_lobby()
+    hub.reset_hub()
+    reset_rate_limits()
+    yield
+    lobby.reset_lobby()
+    hub.reset_hub()
+    reset_rate_limits()
+
+
 @pytest.fixture()
 def authed_client(client: TestClient) -> tuple[TestClient, dict]:
     """Register a user and return (client, user body) with session cookie set."""
@@ -105,25 +112,40 @@ def authed_client(client: TestClient) -> tuple[TestClient, dict]:
     return client, resp.json()
 
 
+def _register_other(email: str) -> object:
+    """Build a client fixture factory registering `email` (shared body)."""
+
+    def factory(db: Session) -> TestClient:
+        reset_rate_limits()
+
+        def override_db() -> Session:
+            try:
+                yield db
+            finally:
+                pass
+
+        app.dependency_overrides[get_db_session] = override_db
+        other = TestClient(app)
+        try:
+            resp = other.post(
+                "/api/v1/auth/register",
+                json={"email": email, "password": "s3cret-pass"},
+            )
+            assert resp.status_code == 201, resp.text
+            yield other
+        finally:
+            app.dependency_overrides.clear()
+
+    return factory
+
+
 @pytest.fixture()
 def other_client(db: Session) -> TestClient:
     """A second independent client (separate user) for cross-account tests."""
-    reset_rate_limits()
+    yield from _register_other("opponent@example.com")(db)
 
-    def override_db() -> Session:
-        try:
-            yield db
-        finally:
-            pass
 
-    app.dependency_overrides[get_db_session] = override_db
-    other = TestClient(app)
-    try:
-        resp = other.post(
-            "/api/v1/auth/register",
-            json={"email": "opponent@example.com", "password": "s3cret-pass"},
-        )
-        assert resp.status_code == 201, resp.text
-        yield other
-    finally:
-        app.dependency_overrides.clear()
+@pytest.fixture()
+def third_client(db: Session) -> TestClient:
+    """A third account — the stranger for online-game visibility tests."""
+    yield from _register_other("stranger@example.com")(db)

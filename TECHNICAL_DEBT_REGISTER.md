@@ -16,6 +16,7 @@
 | TD-009 | npm cannot write its cache/logs under `$HOME` | Assistant file sandbox (workspace-write) blocks writes outside the workspace; npm misreports as "root-owned files" | Low — `--cache $(mktemp -d)` workaround proven; all deps already installed | web | Use temp `--cache` for future `npm install`; **no `sudo chown` needed** (ownership already correct) | Next `npm install` | Open |
 | TD-010 | `uvicorn[standard]` (uvloop/httptools) not yet used | 3.14 wheel availability unconfirmed | Low — fewer prod niceties | api | Confirm wheels, then enable extras | Before production | Open |
 | TD-011 | Starlette `TestClient` deprecates `httpx` in favor of `httpx2` | Upstream forward-migration | Low — test warning only today | api/tests | Migrate to httpx2 when stable | When starlette drops httpx | Open |
+| TD-012 | Online lobby queue, socket hub and move rate-buckets live in-process | Single-replica assumption (online-plan §2, architecture D6) | Medium — pairing/broadcasts break across replicas; games themselves are safe in Postgres | api/online | Move queue + pub/sub + limiters to Redis when scaling out | When a second API replica is needed | Accepted |
 
 ## Watched risks (from spec)
 

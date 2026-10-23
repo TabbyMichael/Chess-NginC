@@ -19,4 +19,6 @@ COPY alembic.ini ./alembic.ini
 EXPOSE 8000
 
 # Default: migrate then serve. Compose overrides keep this contract.
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# --ws-max-size 4096 bounds WS frames at the server BEFORE buffering, closing
+# oversized floods (TD-012 note: the app-level 4KB cap applies post-read).
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --ws-max-size 4096"]

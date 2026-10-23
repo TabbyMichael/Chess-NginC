@@ -32,6 +32,7 @@ function renderGame(path = '/games/7') {
       <AuthProvider>
         <Routes>
           <Route path="/games/:id" element={<GamePage />} />
+          <Route path="/online/:id" element={<p>Online board</p>} />
           <Route path="/" element={<p>Dashboard</p>} />
         </Routes>
       </AuthProvider>
@@ -73,6 +74,16 @@ describe('GamePage load (WEB-024/025)', () => {
     // Board reflects the resumed position: e4 occupied, e2 empty.
     expect(screen.getByRole('gridcell', { name: /^e4,/ })).toHaveAccessibleName('e4, white p');
     expect(screen.getByRole('gridcell', { name: /^e2,/ })).toHaveAccessibleName('e2, empty');
+  });
+
+  it('redirects online games to the /online/:id board', async () => {
+    // Legacy routes refuse online games, so the page must hand the row over.
+    vi.spyOn(api, 'getGame').mockResolvedValue(
+      game({ mode: 'online', white_user_id: 1, black_user_id: 2 }),
+    );
+    renderGame('/games/7');
+
+    expect(await screen.findByText('Online board')).toBeInTheDocument();
   });
 
   it('shows an error state when the game cannot be loaded', async () => {

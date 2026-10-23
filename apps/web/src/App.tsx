@@ -13,6 +13,8 @@ import ThemeToggle from './components/ThemeToggle';
 import UserMenu from './components/UserMenu';
 import Dashboard from './pages/Dashboard';
 import GamePage from './pages/GamePage';
+import LobbyPage from './pages/LobbyPage';
+import OnlineGamePage from './pages/OnlineGamePage';
 import { ForgotPasswordPage, LoginPage, RegisterPage, ResetPasswordPage } from './pages/AuthPages';
 
 function Header() {
@@ -37,6 +39,12 @@ function Header() {
               className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
             >
               Home
+            </NavLink>
+            <NavLink
+              to="/lobby"
+              className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
+            >
+              Play online
             </NavLink>
           </nav>
         )}
@@ -85,6 +93,22 @@ export default function App() {
           element={
             <RequireAuth>
               <GamePage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/lobby"
+          element={
+            <RequireAuth>
+              <LobbyPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/online/:id"
+          element={
+            <RequireAuth>
+              <OnlineGamePage />
             </RequireAuth>
           }
         />

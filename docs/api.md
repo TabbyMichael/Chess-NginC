@@ -46,7 +46,7 @@
 
 | Method & Path | Description |
 |---------------|-------------|
-| `POST /games` | Create game. Body: `{mode: "local" \| "computer"}` → `201` |
+| `POST /games` | Create game. Body: `{mode: "local" \| "computer"}` → `201`; `422` for `"online"` (online games come from the lobby queue) |
 | `GET /games` | List caller's games, newest first |
 | `GET /games/{id}` | One game + ordered moves; `404` if foreign |
 | `POST /games/{id}/moves` | Body: `{uci, expected_version}`. Validates legality (422), version (409), terminal sync |
@@ -62,6 +62,34 @@
 2. Server validates legality via python-chess, persists the move row, bumps
    `version += 1`, and derives terminal status (checkmate/stalemate/draw).
 3. Client retries on `409` by re-fetching and replaying intent.
+
+## Online play (all 🔒, online-plan Phases 1–3)
+
+| Method & Path | Description |
+|---------------|-------------|
+| `POST /online/queue` | Join the match queue. `200 {status: "queued"}` or `{status: "matched", game_id, color}` when an opponent is waiting. Duplicate queueing is idempotent |
+| `DELETE /online/queue` | Cancel a pending slot; always `204` |
+| `GET /online/queue` | `{status: "idle" \| "queued" \| "matched"(+game_id, color)}` — safe to poll |
+| `GET /online/games` | Caller's online games from **either color seat**, newest first |
+| `GET /online/games/{id}` | Participant-scoped fetch; `404` for strangers (never `403`) |
+| `POST /online/games/{id}/moves` | Body: `{uci, expected_version}`. Turn-checked server-side (`422 "It is not your turn"`); both seats earn move points |
+| `POST /online/games/{id}/resign` | Resigning seat scores `loss`, opponent `win` |
+| `POST /online/games/{id}/draw-claim` | Position-based (fifty-move/repetition/stalemate/insufficient material); both seats score `draw` |
+
+Rate limits: online move POSTs are capped per user per minute
+(`MOVE_RATE_LIMIT_PER_MINUTE`, default 60; `429` beyond). The legacy
+`/games/{id}/*` routes refuse online games with `422`.
+
+### WebSocket `/api/v1/online/ws?game_id={id}`
+
+Cookie-authenticated upgrade; closed before accept with `4400` (no game id),
+`4401` (no session), `4403` (not a participant / bad origin). JSON frames
+`{type, payload}` ≤ 4 KB, ≤ 10 msgs/s (else `1008`). Client → server:
+`move`, `resign`, `draw_claim`, `ping`. Server → client: `game_state` (full
+authoritative `GameResponse` broadcast to both seats), `opponent_joined`,
+`opponent_left`, `pong`, `error` (sender only). The socket is a transport —
+every action runs through the same service path as REST, and the frontend
+falls back to polling when it drops.
 
 ## OpenAPI
 
