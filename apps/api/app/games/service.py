@@ -15,7 +15,14 @@ from app.games.errors import IllegalMoveError, InvalidMoveError
 from app.games.rules import ChessRules
 from app.models.game import Game as GameRow
 from app.models.game_move import GameMove as GameMoveRow
+from app.models.point_award import PointAward
+from app.models.user import User
 from app.repositories.game_repository import GameRepository
+
+# Chess.com-style scoring for computer games: every recorded move earns a
+# point and the finished game earns a result bonus. Local hot-seat games
+# award nothing. In computer games the account owner plays White.
+POINT_RULES = {"move": 1, "win": 10, "draw": 5, "loss": 3}
 
 
 @dataclass(frozen=True)
@@ -63,12 +70,52 @@ def _require_active(game: GameRow) -> None:
         raise GameFinishedError(f"Game is {game.status}")
 
 
-def _sync_status(repo: GameRepository, game: GameRow, rules: ChessRules) -> GameRow:
+def _award_points(db: Session, game: GameRow, reason: str, move_number: int | None = None) -> None:
+    """Record a point award and bump the user's running total.
+
+    Computer games only. Move awards are idempotent per (game, move slot),
+    so undo-then-replay cannot farm extra points.
+    """
+    if game.mode != GameMode.COMPUTER.value:
+        return
+    if move_number is not None:
+        existing = db.execute(
+            select(PointAward).where(
+                PointAward.game_id == game.id,
+                PointAward.reason == "move",
+                PointAward.move_number == move_number,
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            return
+    delta = POINT_RULES[reason]
+    db.add(
+        PointAward(
+            user_id=game.user_id,
+            game_id=game.id,
+            delta=delta,
+            reason=reason,
+            move_number=move_number,
+        )
+    )
+    user = db.get(User, game.user_id)
+    if user is not None:
+        user.points += delta
+    db.commit()
+
+
+def _sync_status(db: Session, repo: GameRepository, game: GameRow, rules: ChessRules) -> GameRow:
     """Persist rules-derived terminal status if the position ended the game."""
     derived = rules.status()
     if derived != GameStatus.ACTIVE and game.status == GameStatus.ACTIVE.value:
         updated = repo.update_status(game.id, game.user_id, derived.value)
         assert updated is not None
+        if derived == GameStatus.CHECKMATE:
+            # In checkmate the side TO MOVE is the loser; our user plays White.
+            mated_is_white = rules.fen.split(" ")[1] == "w"
+            _award_points(db, updated, "loss" if mated_is_white else "win")
+        elif derived in (GameStatus.STALEMATE, GameStatus.DRAW):
+            _award_points(db, updated, "draw")
         return updated
     return game
 
@@ -112,7 +159,8 @@ def submit_move(
     repo.add_move(game_id, user_id, uci=move.uci, san=move.san, move_number=move_number)
     updated = repo.update_fen(game_id, user_id, rules.fen, expected_version)
     assert updated is not None  # version checked above
-    updated = _sync_status(repo, updated, rules)
+    _award_points(db, updated, "move", move_number)
+    updated = _sync_status(db, repo, updated, rules)
     return GameDetail(game=updated, moves=repo.get_moves(game_id, user_id))
 
 
@@ -142,6 +190,7 @@ def resign_game(db: Session, game_id: int, user_id: int) -> GameDetail:
     _require_active(game)
     updated = repo.update_status(game.id, user_id, GameStatus.RESIGNED.value)
     assert updated is not None
+    _award_points(db, updated, "loss")
     return GameDetail(game=updated, moves=repo.get_moves(game_id, user_id))
 
 
@@ -164,6 +213,7 @@ def claim_draw(db: Session, game_id: int, user_id: int) -> GameDetail:
         raise IllegalMoveRequestError("Position does not support a draw claim")
     updated = repo.update_status(game.id, user_id, GameStatus.DRAW.value)
     assert updated is not None
+    _award_points(db, updated, "draw")
     return GameDetail(game=updated, moves=repo.get_moves(game_id, user_id))
 
 
@@ -224,5 +274,5 @@ def request_engine_move(
     db.commit()
     updated = repo.update_fen(game_id, user_id, rules.fen, expected_version)
     assert updated is not None
-    updated = _sync_status(repo, updated, rules)
+    updated = _sync_status(db, repo, updated, rules)
     return GameDetail(game=updated, moves=repo.get_moves(game_id, user_id))

@@ -3,8 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   allSquares,
   capturedPieces,
-  glyph,
   isLightSquare,
+  legalTargets,
+  materialBalance,
   parseFenPlacement,
   sideToMove,
 } from './chess';
@@ -76,13 +77,6 @@ describe('isLightSquare', () => {
   });
 });
 
-describe('glyph', () => {
-  it('distinguishes white from black pieces', () => {
-    expect(glyph({ kind: 'k', color: 'w' })).toBe('♔');
-    expect(glyph({ kind: 'k', color: 'b' })).toBe('♚');
-  });
-});
-
 describe('capturedPieces (WEB-018)', () => {
   it('reports nothing captured in the starting position', () => {
     const { capturedByWhite, capturedByBlack } = capturedPieces(START_FEN);
@@ -92,7 +86,7 @@ describe('capturedPieces (WEB-018)', () => {
 
   it('credits White for a captured black pawn', () => {
     const { capturedByWhite, capturedByBlack } = capturedPieces(AFTER_CAPTURE);
-    expect(capturedByWhite).toEqual(['♟']);
+    expect(capturedByWhite).toEqual(['p']);
     expect(capturedByBlack).toEqual([]);
   });
 
@@ -100,14 +94,64 @@ describe('capturedPieces (WEB-018)', () => {
     // Black is missing queen + both rooks; White is missing one knight.
     const fen = '1nb1kbn1/pppppppp/8/8/8/8/PPPPPPPP/RNBQKB1R w KQkq - 0 1';
     const { capturedByBlack, capturedByWhite } = capturedPieces(fen);
-    // Captured pieces keep their own color glyph.
-    expect(capturedByWhite).toEqual(['♛', '♜', '♜']);
-    expect(capturedByBlack).toEqual(['♘']);
+    // The tray holds kinds; PlayerInfo renders each in the captured side's color.
+    expect(capturedByWhite).toEqual(['q', 'r', 'r']);
+    expect(capturedByBlack).toEqual(['n']);
   });
 
   it('never reports a captured king', () => {
     const fen = '8/8/8/8/8/8/8/4K3 w - - 0 1';
     const { capturedByBlack } = capturedPieces(fen);
-    expect(capturedByBlack).not.toContain('♚');
+    expect(capturedByBlack).not.toContain('k');
+  });
+});
+
+describe('materialBalance', () => {
+  it('is level at the starting position', () => {
+    expect(materialBalance(START_FEN)).toBe(0);
+  });
+
+  it('is positive when White is ahead by a pawn', () => {
+    // Black is missing the d7 pawn only.
+    expect(materialBalance('rnbqkbnr/ppp1pppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1')).toBe(1);
+  });
+
+  it('is negative when Black is ahead', () => {
+    // White is missing the b1 knight only.
+    expect(materialBalance('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/R1BQKBNR b KQkq - 0 1')).toBe(-3);
+  });
+
+  it('ignores kings', () => {
+    expect(materialBalance('4k3/8/8/8/8/8/8/4K3 w - - 0 1')).toBe(0);
+  });
+});
+
+describe('legalTargets', () => {
+  it('lists the two one- and two-square pawn pushes from the start', () => {
+    expect(legalTargets(START_FEN, 'e2').sort()).toEqual(['e3', 'e4']);
+  });
+
+  it('lists knight jumps', () => {
+    expect(legalTargets(START_FEN, 'g1').sort()).toEqual(['f3', 'h3']);
+  });
+
+  it('includes captures the piece can legally make', () => {
+    // White pawn on d6 can capture the black pawn on e7.
+    const fen = 'rnbqkbnr/pppppppp/3P4/8/8/8/PPP1PPPP/RNBQKBNR w KQkq - 0 3';
+    expect(legalTargets(fen, 'd6')).toContain('e7');
+  });
+
+  it('returns nothing for an empty or enemy-occupied square', () => {
+    expect(legalTargets(START_FEN, 'e4')).toEqual([]);
+    expect(legalTargets(START_FEN, 'e7')).toEqual([]);
+  });
+
+  it('returns nothing for a malformed FEN instead of throwing', () => {
+    expect(legalTargets('nonsense', 'e2')).toEqual([]);
+  });
+
+  it('respects the side to move', () => {
+    // After 1.e4 it is Black's move: White's e-pawn has no targets.
+    expect(legalTargets(AFTER_CAPTURE, 'e2')).toEqual([]);
   });
 });

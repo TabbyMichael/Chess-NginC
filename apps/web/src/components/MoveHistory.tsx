@@ -1,5 +1,9 @@
-/** Move history list with numbering (WEB-017), empty state included. */
-import { motion } from 'framer-motion';
+/**
+ * Move history (WEB-017): numbered rows in standard notation with separate
+ * white/black columns; the most recent move is highlighted. Empty state
+ * included. Scrollable independently of the page.
+ */
+import { clsx } from 'clsx';
 import type { MoveResponse } from '../lib/api-types';
 
 export default function MoveHistory({ moves }: { moves: MoveResponse[] }) {
@@ -15,25 +19,20 @@ export default function MoveHistory({ moves }: { moves: MoveResponse[] }) {
     if (idx % 2 === 0) rows.push({ num: idx / 2 + 1, white: m.san });
     else rows[rows.length - 1].black = m.san;
   });
+  const lastIndex = rows.length - 1;
+  const lastIsBlack = Boolean(rows[lastIndex].black);
   return (
-    <ol aria-label="move history" className="moves-list">
+    <ol aria-label="move history" className="moves">
       {rows.map((row, idx) => (
-        <motion.li
-          key={row.num}
-          className={['move-row', idx === rows.length - 1 ? 'move-last' : ''].filter(Boolean).join(' ')}
-          initial={{ opacity: 0, x: -10 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.3 }}
-        >
-          <span className="move-number">{row.num}.</span>
-          <span>{row.white}</span>
-          {row.black && (
-            <>
-              {' '}
-              <span>{row.black}</span>
-            </>
-          )}
-        </motion.li>
+        <li key={row.num}>
+          <span className="move-num">{row.num}.</span>
+          <span className={clsx('move-san', idx === lastIndex && !lastIsBlack && 'latest')}>
+            {row.white}
+          </span>
+          <span className={clsx('move-san', idx === lastIndex && lastIsBlack && 'latest')}>
+            {row.black ?? ''}
+          </span>
+        </li>
       ))}
     </ol>
   );

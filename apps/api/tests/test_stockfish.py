@@ -31,8 +31,11 @@ from app.games.domain import Color
 
 STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
-FAKE_UCI = """#!/usr/bin/env -S {python} -u
-import sys
+# No shebang on purpose: `env -S` splits the interpreter path on spaces, so an
+# install directory like "Chess NginC" would fail to exec (exit 127). The POSIX
+# fixture below launches this through a quoted `/bin/sh` wrapper instead.
+# Written verbatim (not a format template), so f-string braces stay single.
+FAKE_UCI = """import sys
 def main():
     multipv = 1
     for line in sys.stdin:
@@ -62,7 +65,7 @@ def main():
             ]
             for i, (move, cp, pv) in enumerate(infos[:max(1, multipv)]):
                 joined = " ".join(pv)
-                line = f"info depth 1 multipv {{i + 1}} score cp {{cp}} pv {{joined}}"
+                line = f"info depth 1 multipv {i + 1} score cp {cp} pv {joined}"
                 print(line)
             print("bestmove e2e4")
         elif line == "quit":
@@ -75,7 +78,7 @@ main()
 @pytest.fixture()
 def fake_binary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
     script = tmp_path / "fake-stockfish.py"
-    script.write_text(FAKE_UCI.format(python=sys.executable))
+    script.write_text(FAKE_UCI)
     if os.name == "nt":
         # Windows cannot exec extensionless shebang scripts (WinError 193);
         # wrap in a .cmd so CreateProcess can launch it.
@@ -83,9 +86,12 @@ def fake_binary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
         wrapper.write_text(f'@"{sys.executable}" -u "{script}" %*\n')
         monkeypatch.setenv("PATH", str(tmp_path), prepend=os.pathsep)
         return str(wrapper)
-    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    # Quote both paths: the interpreter or the checkout may contain spaces.
+    wrapper = tmp_path / "fake-stockfish"
+    wrapper.write_text(f'#!/bin/sh\nexec "{sys.executable}" -u "{script}" "$@"\n')
+    wrapper.chmod(wrapper.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setenv("PATH", str(tmp_path))
-    return str(script)
+    return str(wrapper)
 
 
 def test_provenance_constants_record_official_source() -> None:

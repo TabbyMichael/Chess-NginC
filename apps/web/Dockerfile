@@ -2,6 +2,9 @@
 # Stage 1: build the static bundle.
 FROM node:20-alpine AS build
 WORKDIR /srv/web
+# Google Sign-In client ID baked into the bundle; empty hides the button.
+ARG VITE_GOOGLE_CLIENT_ID=
+ENV VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . ./

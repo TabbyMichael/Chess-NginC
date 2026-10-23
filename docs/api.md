@@ -34,6 +34,9 @@
 |---------------|------|-------------|
 | `POST /auth/register` | — | `201` + sets session. Body: `{email, password}` |
 | `POST /auth/login` | — | `200` + sets session. Generic 401 message |
+| `POST /auth/forgot-password` | — | `200` neutral message always. Body: `{email}`. Rate-limited |
+| `POST /auth/reset-password` | — | `200` on success; `400` invalid/expired token or weak password. Body: `{token, password}`. Revokes all sessions |
+| `POST /auth/google` | — | `200` + sets session. Body: `{credential}` (Google ID token, verified server-side). `404` when unconfigured, `401` on bad token |
 | `POST /auth/logout` | 🔒¹ | `204`, revokes session, clears cookies |
 | `GET /auth/me` | 🔒 | `200 {id, email}` |
 

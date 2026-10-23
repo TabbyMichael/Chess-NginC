@@ -18,6 +18,8 @@ dependencies = [
     "alembic>=1.14",
     "bcrypt>=4.1",
     "python-chess>=1.10",
+    "google-auth>=2.35",
+    "requests>=2.32",
 ]
 
 [project.optional-dependencies]

@@ -7,6 +7,7 @@
 export interface UserResponse {
   id: number;
   email: string;
+  points: number;
 }
 
 export interface RegisterRequest {
@@ -15,6 +16,23 @@ export interface RegisterRequest {
 }
 
 export type LoginRequest = RegisterRequest;
+
+export interface ForgotPasswordRequest {
+  email: string;
+}
+
+export interface ResetPasswordRequest {
+  token: string;
+  password: string;
+}
+
+export interface GoogleLoginRequest {
+  credential: string;
+}
+
+export interface MessageResponse {
+  message: string;
+}
 
 export interface ErrorResponse {
   detail: string;
