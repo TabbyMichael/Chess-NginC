@@ -78,5 +78,6 @@ compose.yaml    local Docker Compose
 | D3 | Stockfish isolated behind the engine interface, bounded execution | Accepted | Licensing reviewed before distribution |
 | D4 | npm as JS package manager (pnpm not installed) | Pending | Revisit if pnpm is added |
 | D5 | Docker Compose for local dev; document local-Postgres fallback (Docker not installed) | Pending | FND-018/019 |
+| D6 | Online human-vs-human play extends the modular monolith: Postgres stays authoritative; lobby queue, socket hub and rate-limiter are in-process state islands | Accepted | Single-replica assumption (online-plan §2): restarts drop queues/sockets but never games; scale-out requires moving ephemeral state to Redis/a broker — tracked as debt |
 
 See `docs/decisions/` for full decision records as they arise.

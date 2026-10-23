@@ -22,6 +22,12 @@ def test_openapi_schema_valid(client: TestClient) -> None:
         "/api/v1/games/{game_id}/resign",
         "/api/v1/games/{game_id}/draw-claim",
         "/api/v1/games/{game_id}/engine-move",
+        "/api/v1/online/queue",
+        "/api/v1/online/games",
+        "/api/v1/online/games/{game_id}",
+        "/api/v1/online/games/{game_id}/moves",
+        "/api/v1/online/games/{game_id}/resign",
+        "/api/v1/online/games/{game_id}/draw-claim",
     ]:
         assert path in paths, f"missing {path}"
     # Every operation has a response model; mutating routes declare errors.

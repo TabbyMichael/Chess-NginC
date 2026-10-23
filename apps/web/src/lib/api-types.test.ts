@@ -4,7 +4,13 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import type { CreateGameRequest, EngineMoveRequest, GameResponse, MoveRequest } from './api-types';
+import type {
+  CreateGameRequest,
+  EngineMoveRequest,
+  GameResponse,
+  MoveRequest,
+  QueueResponse,
+} from './api-types';
 
 describe('api-types contract', () => {
   it('request shapes accept backend-valid payloads', () => {
@@ -30,5 +36,23 @@ describe('api-types contract', () => {
       'abandoned',
     ];
     expect(statuses).toHaveLength(6);
+  });
+
+  it('online games carry color seats; queue responses carry match hints', () => {
+    const online: GameResponse = {
+      id: 3,
+      mode: 'online',
+      status: 'active',
+      fen: 'start',
+      version: 1,
+      moves: [],
+      white_user_id: 1,
+      black_user_id: 2,
+    };
+    expect(online.mode).toBe('online');
+    const matched: QueueResponse = { status: 'matched', game_id: 3, color: 'w' };
+    const idle: QueueResponse = { status: 'idle' };
+    expect(matched.game_id).toBe(3);
+    expect(idle.game_id).toBeUndefined();
   });
 });

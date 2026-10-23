@@ -11,6 +11,10 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn>=0.30",
+    # uvicorn needs an explicit WebSocket implementation at serve time; the
+    # Starlette TestClient exercises WS in-process and does NOT need this, so
+    # without it online play works in tests but fails under the real container.
+    "websockets>=12",
     "pydantic>=2.10",
     "pydantic-settings>=2.6",
     "sqlalchemy>=2.0.36",

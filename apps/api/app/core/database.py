@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     session_ttl_hours: int = 24 * 7  # 7 days
     auth_rate_limit_per_minute: int = 10
+    # Online move spam guard (online-plan §6.1), per user per minute.
+    move_rate_limit_per_minute: int = 60
     # Password reset (SEC): short-lived single-use tokens. `reset_link_base`
     # is the public web origin used to build the emailed link. SMTP is
     # optional — with no `smtp_host` the link is logged (dev convenience).

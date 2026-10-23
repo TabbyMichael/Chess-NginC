@@ -12,6 +12,7 @@ import type {
   LoginRequest,
   MessageResponse,
   MoveRequest,
+  QueueResponse,
   RegisterRequest,
   ResetPasswordRequest,
   UserResponse,
@@ -59,6 +60,8 @@ const post = <T>(path: string, payload?: unknown): Promise<T> =>
 
 const get = <T>(path: string): Promise<T> => request<T>(path);
 
+const del = <T>(path: string): Promise<T> => request<T>(path, { method: 'DELETE' });
+
 export const api = {
   register: (p: RegisterRequest) => post<UserResponse>('/auth/register', p),
   login: (p: LoginRequest) => post<UserResponse>('/auth/login', p),
@@ -77,4 +80,14 @@ export const api = {
   claimDraw: (id: number) => post<GameResponse>(`/games/${id}/draw-claim`),
   engineMove: (id: number, p: EngineMoveRequest) =>
     post<GameResponse>(`/games/${id}/engine-move`, p),
+
+  // Online play (online-plan §6): lobby queue + participant-scoped game routes.
+  joinQueue: () => post<QueueResponse>('/online/queue'),
+  leaveQueue: () => del<void>('/online/queue'),
+  queueStatus: () => get<QueueResponse>('/online/queue'),
+  listOnlineGames: () => get<GameResponse[]>('/online/games'),
+  getOnlineGame: (id: number) => get<GameResponse>(`/online/games/${id}`),
+  submitOnlineMove: (id: number, p: MoveRequest) => post<GameResponse>(`/online/games/${id}/moves`, p),
+  resignOnlineGame: (id: number) => post<GameResponse>(`/online/games/${id}/resign`),
+  claimOnlineDraw: (id: number) => post<GameResponse>(`/online/games/${id}/draw-claim`),
 };

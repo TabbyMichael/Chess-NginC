@@ -15,7 +15,15 @@ class Game(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
-    mode: Mapped[str] = mapped_column(String(50), nullable=False)  # 'local' or 'computer'
+    # Online games only: the two color seats. `user_id` mirrors `white_user_id`
+    # so existing owner-scoped queries keep working for White (online-plan §3.1).
+    white_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
+    black_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
+    mode: Mapped[str] = mapped_column(String(50), nullable=False)  # 'local', 'computer', 'online'
     status: Mapped[str] = mapped_column(String(50), nullable=False)  # 'active', 'checkmate', etc.
     fen: Mapped[str] = mapped_column(Text, nullable=False)
     version: Mapped[int] = mapped_column(

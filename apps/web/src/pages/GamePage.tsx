@@ -6,7 +6,7 @@
  * (resign, reset) ask for confirmation first.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useLocation, useParams } from 'react-router-dom';
+import { Link, Navigate, useLocation, useParams } from 'react-router-dom';
 import { Coins } from 'lucide-react';
 
 import Chessboard from '../components/Chessboard';
@@ -183,6 +183,11 @@ export default function GamePage() {
       </main>
     );
   if (!game) return null;
+  // Online games can only be played through /online/:id (the legacy routes
+  // refuse them server-side); redirect stale deep links to the right board.
+  if (game.mode === 'online') {
+    return <Navigate to={`/online/${game.id}`} replace />;
+  }
 
   const inCheck = game.fen.includes('+') || game.status === 'checkmate';
   const finished = game.status !== 'active';
