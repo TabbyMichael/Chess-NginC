@@ -1,5 +1,6 @@
 """Password hashing (bcrypt) and session-token generation."""
 
+import hashlib
 import secrets
 from datetime import UTC, datetime, timedelta
 
@@ -42,3 +43,19 @@ def session_expiry(now: datetime | None = None) -> datetime:
     """Compute session expiry from the configured TTL."""
     base = now or datetime.now(UTC).replace(tzinfo=None)
     return base + timedelta(hours=settings.session_ttl_hours)
+
+
+def generate_reset_token() -> str:
+    """Generate a cryptographically random password-reset token (raw)."""
+    return secrets.token_urlsafe(TOKEN_BYTES)
+
+
+def hash_reset_token(token: str) -> str:
+    """SHA-256 a reset token for storage; the raw value is never persisted."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def reset_token_expiry(now: datetime | None = None) -> datetime:
+    """Compute reset-token expiry from the configured TTL."""
+    base = now or datetime.now(UTC).replace(tzinfo=None)
+    return base + timedelta(minutes=settings.password_reset_ttl_minutes)

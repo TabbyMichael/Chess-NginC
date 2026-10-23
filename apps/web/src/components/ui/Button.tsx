@@ -2,7 +2,7 @@ import { type ButtonHTMLAttributes, forwardRef } from 'react';
 import { clsx } from 'clsx';
 
 export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: 'primary' | 'brand' | 'danger' | 'ghost' | 'small';
+  variant?: 'primary' | 'danger' | 'ghost' | 'small';
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(

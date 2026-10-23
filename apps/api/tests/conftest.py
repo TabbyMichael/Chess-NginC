@@ -70,11 +70,15 @@ def _wipe(db: Session) -> None:
     from app.models.engine_run import EngineRun
     from app.models.game import Game
     from app.models.game_move import GameMove
+    from app.models.password_reset_token import PasswordResetToken
+    from app.models.point_award import PointAward
 
     try:
         db.query(EngineRun).delete()
         db.query(GameMove).delete()
+        db.query(PointAward).delete()
         db.query(Game).delete()
+        db.query(PasswordResetToken).delete()
         db.query(SessionModel).delete()
         db.execute(sqlalchemy.text("DELETE FROM users"))
         db.commit()

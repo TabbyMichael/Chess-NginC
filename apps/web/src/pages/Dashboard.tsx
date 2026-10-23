@@ -1,44 +1,54 @@
 /**
  * Dashboard (WEB-009/020/021/022/023): new-game setup (mode + difficulty),
- * saved-game listing, logout (WEB-007).
- * Gen Alpha makeover: vibrant game lobby, quick start, XP display, badges.
+ * saved-game listing, player statistics and achievements.
+ * All stats and achievement states are derived from real game data — nothing
+ * is invented; metrics that the API cannot support are omitted.
  */
-import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { Clock, Coins, Cpu, Crown, Flag, Play, Trophy, Users } from 'lucide-react';
 
 import { useAuth } from '../app/useAuth';
 import { ApiError, api } from '../lib/api-client';
-import type { GameMode, GameResponse } from '../lib/api-types';
+import type { GameMode, GameResponse, GameStatus } from '../lib/api-types';
+import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
-import { Badge } from '../components/ui/Badge';
-import { XPBar } from '../components/ui/XPBar';
 
 const MODE_LABELS: Record<GameMode, string> = {
-  local: 'Local Two-Player',
-  computer: 'Player vs Computer',
+  local: 'Two players',
+  computer: 'vs Computer',
 };
 
-const MODE_META: Record<GameMode, { emoji: string; desc: string }> = {
-  computer: { emoji: '🤖', desc: 'Battle the engine' },
-  local: { emoji: '👥', desc: 'Pass & play with a friend' },
+const MODE_DESCRIPTIONS: Record<GameMode, string> = {
+  local: 'Pass and play on one board',
+  computer: 'Battle the Stockfish engine',
 };
 
-const DIFFICULTY_META: Record<number, { label: string; emoji: string; blurb: string }> = {
-  1: { label: 'Easy', emoji: '🌱', blurb: 'Chill vibes' },
-  3: { label: 'Medium', emoji: '🔥', blurb: 'Spicy' },
-  5: { label: 'Hard', emoji: '👹', blurb: 'No mercy' },
+const DIFFICULTIES = [
+  { depth: 1, label: 'Easy' },
+  { depth: 3, label: 'Medium' },
+  { depth: 5, label: 'Hard' },
+] as const;
+
+const STATUS_META: Record<GameStatus, { label: string; badge: string }> = {
+  active: { label: 'In progress', badge: 'badge badge-accent' },
+  checkmate: { label: 'Checkmate', badge: 'badge' },
+  stalemate: { label: 'Stalemate', badge: 'badge badge-warning' },
+  draw: { label: 'Draw', badge: 'badge badge-warning' },
+  resigned: { label: 'Resigned', badge: 'badge badge-danger' },
+  abandoned: { label: 'Abandoned', badge: 'badge' },
 };
 
 export default function Dashboard() {
-  const { logout } = useAuth();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [games, setGames] = useState<GameResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<GameMode>('computer');
-  const [depth, setDepth] = useState(3);
+  const [depth, setDepth] = useState<number>(3);
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
@@ -59,6 +69,19 @@ export default function Dashboard() {
     };
   }, []);
 
+  const stats = useMemo(() => {
+    const count = (status: GameStatus) => games.filter((g) => g.status === status).length;
+    return {
+      total: games.length,
+      active: count('active'),
+      checkmates: count('checkmate'),
+      draws: count('draw') + count('stalemate'),
+      resigned: count('resigned'),
+      moves: games.reduce((sum, g) => sum + g.moves.length, 0),
+      longest: games.reduce((max, g) => Math.max(max, g.moves.length), 0),
+    };
+  }, [games]);
+
   async function handleCreate() {
     setCreating(true);
     setError(null);
@@ -72,164 +95,180 @@ export default function Dashboard() {
     }
   }
 
-  async function handleLogout() {
-    await logout();
-    navigate('/login', { replace: true });
-  }
+  const difficultyLabel = DIFFICULTIES.find((d) => d.depth === depth)?.label ?? '';
 
   return (
-    <main className="flex-1 w-full max-w-5xl px-4 py-6">
-      <motion.header
-        className="hero-card mb-2xl"
-        initial={{ opacity: 0, y: 24 }}
-        animate={{ opacity: 1, y: 0 }}
-      >
-        <span className="hero-kicker">⚡ Season 1 · live now</span>
-        <h1 className="hero-title">Chess NginC</h1>
-        <p className="hero-sub">
-          Outsmart the bot, stack wins, flex badges. Your arena awaits.
-        </p>
-        <div className="quick-start-actions">
-          <Button variant="primary" onClick={handleCreate} disabled={creating}>
-            {creating ? 'Summoning board…' : '▶ Quick play'}
-          </Button>
-          <Button variant="ghost" onClick={handleLogout}>
-            Log out
-          </Button>
+    <main id="main-content">
+      <section className="welcome-band" aria-label="welcome">
+        <div>
+          <h1>Your chess arena</h1>
+          <p>Pick a mode, choose your difficulty, and get to a board in one click.</p>
         </div>
-        <div className="stat-row" aria-label="player stats">
-          <span className="stat-chip">🏆 <b>{games.filter((g) => g.status === 'checkmate').length}</b> dubs</span>
-          <span className="stat-chip">🎮 <b>{games.length}</b> games</span>
-          <span className="stat-chip">🔥 <b>{games.length > 0 ? games[games.length - 1].moves.length : 0}</b> moves last game</span>
-        </div>
-      </motion.header>
+        <Button variant="primary" onClick={handleCreate} disabled={creating}>
+          <Play size={15} aria-hidden="true" />
+          {creating ? 'Starting…' : 'Play chess'}
+        </Button>
+      </section>
 
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.08 }}
-        className="mb-xl"
-      >
-        <XPBar level={5} xp={750} maxXp={1000} />
-      </motion.div>
+      {error && (
+        <p role="alert" className="alert-error" style={{ marginBottom: 'var(--space-5)' }}>
+          {error}
+        </p>
+      )}
+
+      <section className="stats-grid" aria-label="player statistics">
+        <div className="stat">
+          <span className="stat-value">{user ? user.points.toLocaleString() : '—'}</span>
+          <span className="stat-label">
+            <Coins size={13} aria-hidden="true" /> Points
+          </span>
+        </div>
+        <div className="stat">
+          <span className="stat-value">{stats.total}</span>
+          <span className="stat-label">Games</span>
+        </div>
+        <div className="stat">
+          <span className="stat-value">{stats.active}</span>
+          <span className="stat-label">In progress</span>
+        </div>
+        <div className="stat">
+          <span className="stat-value">{stats.checkmates}</span>
+          <span className="stat-label">Checkmates</span>
+        </div>
+        <div className="stat">
+          <span className="stat-value">{stats.draws}</span>
+          <span className="stat-label">Draws</span>
+        </div>
+        <div className="stat">
+          <span className="stat-value">{stats.moves}</span>
+          <span className="stat-label">Moves played</span>
+        </div>
+      </section>
 
       <div className="dashboard-grid">
         <Card>
-          <h2 className="text-xl font-bold mb-md">New game · 🎯 new battle</h2>
-          <p className="u-text-sm mb-lg">Pick your mode + bot difficulty</p>
-          <div className="mode-grid" role="radiogroup" aria-label="Game mode">
+          <div className="card-title">
+            <h2>New game</h2>
+          </div>
+          <p className="choice-label">Mode</p>
+          <div className="option-grid" role="radiogroup" aria-label="Game mode">
             {(Object.keys(MODE_LABELS) as GameMode[]).map((value) => (
               <button
                 key={value}
                 type="button"
                 role="radio"
                 aria-checked={mode === value}
-                className={`mode-card ${mode === value ? 'active' : ''}`}
+                className={`option-card${mode === value ? ' selected' : ''}`}
                 onClick={() => setMode(value)}
               >
-                <span className="mode-emoji" aria-hidden="true">{MODE_META[value].emoji}</span>
-                <span className="mode-name">{MODE_LABELS[value]}</span>
-                <span className="mode-desc">{MODE_META[value].desc}</span>
+                <span className="option-name">
+                  {value === 'computer' ? (
+                    <Cpu size={15} aria-hidden="true" />
+                  ) : (
+                    <Users size={15} aria-hidden="true" />
+                  )}
+                  {MODE_LABELS[value]}
+                </span>
+                <span className="option-desc">{MODE_DESCRIPTIONS[value]}</span>
               </button>
             ))}
           </div>
-          {/* Hidden select keeps old a11y/tests contract if anything queries a select; visual picker above is primary. */}
-          <label className="label" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>
-            Game Mode
-            <select
-              value={mode}
-              onChange={(e) => setMode(e.target.value as GameMode)}
-              tabIndex={-1}
-              aria-hidden="true"
-            >
-              {Object.entries(MODE_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
           {mode === 'computer' && (
             <>
-              <p className="label">Bot difficulty</p>
-              <div className="diff-grid" role="radiogroup" aria-label="Engine difficulty">
-                {Object.entries(DIFFICULTY_META).map(([value, meta]) => (
+              <p className="choice-label">Bot difficulty</p>
+              <div className="option-grid diff" role="radiogroup" aria-label="Engine difficulty">
+                {DIFFICULTIES.map(({ depth: d, label }) => (
                   <button
-                    key={value}
+                    key={d}
                     type="button"
                     role="radio"
-                    aria-checked={depth === Number(value)}
-                    className={`diff-card ${depth === Number(value) ? 'active' : ''}`}
-                    onClick={() => setDepth(Number(value))}
+                    aria-checked={depth === d}
+                    className={`option-card${depth === d ? ' selected' : ''}`}
+                    onClick={() => setDepth(d)}
                   >
-                    {meta.emoji} {meta.label}
-                    <small>{meta.blurb} · depth {value}</small>
+                    <span className="option-name">{label}</span>
+                    <span className="option-desc">depth {d}</span>
                   </button>
                 ))}
               </div>
-              <label className="label" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>
-                Engine Difficulty
-                <select
-                  value={depth}
-                  onChange={(e) => setDepth(Number(e.target.value))}
-                  tabIndex={-1}
-                  aria-hidden="true"
-                >
-                  {Object.entries(DIFFICULTY_META).map(([value, meta]) => (
-                    <option key={value} value={value}>
-                      {meta.label} (depth {value})
-                    </option>
-                  ))}
-                </select>
-              </label>
             </>
           )}
-          <Button
-            variant="brand"
-            onClick={handleCreate}
-            disabled={creating}
-            className="w-full"
-          >
-            {creating ? 'Creating…' : `⚔ Start ${mode === 'computer' ? DIFFICULTY_META[depth].label : 'local'} battle`}
+          <Button variant="primary" onClick={handleCreate} disabled={creating} className="w-full">
+            {creating
+              ? 'Creating…'
+              : mode === 'computer'
+                ? `Start game vs Computer (${difficultyLabel})`
+                : 'Start two-player game'}
           </Button>
         </Card>
 
         <Card>
-          <h2 className="text-xl font-bold mb-md">Your Games</h2>
-          {loading && <p role="status" className="text-center text-ink-soft">Loading games…</p>}
-          {error && (
-            <p role="alert" className="error text-center">
-              {error}
+          <div className="card-title">
+            <h2>Your Games</h2>
+            {stats.total > 0 && <span className="badge">{stats.total} total</span>}
+          </div>
+          {loading && (
+            <p role="status" className="loading-state">
+              Loading games…
             </p>
           )}
           {!loading && !error && games.length === 0 && (
             <div className="empty-state">
-              <p>No games yet — start one above.</p>
+              <h3>No games yet</h3>
+              <p>Start your first game from the panel beside this one.</p>
             </div>
           )}
           {!loading && !error && games.length > 0 && (
             <ul className="game-list">
-              {games.map((g) => (
-                <li key={g.id} className="game-item">
-                  <Link to={`/games/${g.id}`} className="flex items-center gap-md">
-                    <span className="font-mono text-neon-pink">Game #{g.id}</span>
-                    <span className="text-ink-soft text-sm">{MODE_LABELS[g.mode]}</span>
-                    <span className="text-ink-soft text-sm">• {g.status}</span>
-                    <span className="ml-auto text-neon-green font-bold">{g.moves.length} moves</span>
-                  </Link>
-                </li>
-              ))}
+              {games.map((g) => {
+                const status = STATUS_META[g.status as GameStatus] ?? STATUS_META.active;
+                return (
+                  <li key={g.id}>
+                    <Link to={`/games/${g.id}`}>
+                      <span className="game-id">Game #{g.id}</span>
+                      <span className="game-mode">{MODE_LABELS[g.mode]}</span>
+                      <span className={status.badge}>{status.label}</span>
+                      <span className="game-moves">
+                        {g.moves.length} {g.moves.length === 1 ? 'move' : 'moves'}
+                      </span>
+                    </Link>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </Card>
 
-        <Card>
-          <h2 className="text-xl font-bold mb-md">Achievements</h2>
-          <div className="badge-grid">
-            <Badge name="First Move" desc="Play your first game" icon="♟️" unlocked={true} />
-            <Badge name="Checkmate King" desc="Win by checkmate" icon="👑" unlocked={true} />
-            <Badge name="Speed Demon" desc="Win in under 2 minutes" icon="⚡" unlocked={false} />
-            <Badge name="Comeback Kid" desc="Win from behind" icon="🔄" unlocked={false} />
+        <Card className="span-full">
+          <div className="card-title">
+            <h2>Achievements</h2>
+            <span className="u-text-xs u-muted">Earned from your saved games</span>
+          </div>
+          <div className="achievement-grid">
+            <Badge
+              name="First Move"
+              desc="Play your first move"
+              icon={<Flag size={18} />}
+              unlocked={stats.moves > 0}
+            />
+            <Badge
+              name="Checkmate King"
+              desc="Finish a game by checkmate"
+              icon={<Crown size={18} />}
+              unlocked={stats.checkmates > 0}
+            />
+            <Badge
+              name="Regular"
+              desc="Play three or more games"
+              icon={<Trophy size={18} />}
+              unlocked={stats.total >= 3}
+            />
+            <Badge
+              name="Endurance"
+              desc="Reach 40+ moves in one game"
+              icon={<Clock size={18} />}
+              unlocked={stats.longest >= 40}
+            />
           </div>
         </Card>
       </div>

@@ -5,7 +5,19 @@ from app.models.benchmark_run import BenchmarkRun
 from app.models.engine_run import EngineRun
 from app.models.game import Game
 from app.models.game_move import GameMove
+from app.models.password_reset_token import PasswordResetToken
+from app.models.point_award import PointAward
 from app.models.session import Session
 from app.models.user import User
 
-__all__ = ["User", "Session", "Game", "GameMove", "EngineRun", "BenchmarkRun", "BenchmarkResult"]
+__all__ = [
+    "User",
+    "Session",
+    "Game",
+    "GameMove",
+    "EngineRun",
+    "BenchmarkRun",
+    "BenchmarkResult",
+    "PasswordResetToken",
+    "PointAward",
+]

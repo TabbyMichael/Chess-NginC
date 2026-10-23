@@ -24,6 +24,19 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     session_ttl_hours: int = 24 * 7  # 7 days
     auth_rate_limit_per_minute: int = 10
+    # Password reset (SEC): short-lived single-use tokens. `reset_link_base`
+    # is the public web origin used to build the emailed link. SMTP is
+    # optional — with no `smtp_host` the link is logged (dev convenience).
+    password_reset_ttl_minutes: int = 60
+    reset_link_base: str = "http://localhost:5173"
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    # Google Sign-In (WEB auth): OAuth 2.0 client ID verified server-side.
+    # Empty = Google sign-in disabled; never commit a real value.
+    google_client_id: str = ""
     # Stockfish (BEN-001/002/004/006): absolute binary path, empty = PATH lookup.
     # Never accept a path from clients; only env/config (BEN-020).
     stockfish_path: str = ""

@@ -55,6 +55,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const loginWithGoogle = useCallback(async (credential: string) => {
+    setError(null);
+    try {
+      setUser(await api.googleLogin({ credential }));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Google sign-in failed');
+      throw err;
+    }
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       await api.logout();
@@ -66,8 +76,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const clearError = useCallback(() => setError(null), []);
 
   const value = useMemo(
-    () => ({ user, loading, error, login, register, logout, clearError }),
-    [user, loading, error, login, register, logout, clearError],
+    () => ({ user, loading, error, login, register, loginWithGoogle, logout, clearError }),
+    [user, loading, error, login, register, loginWithGoogle, logout, clearError],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

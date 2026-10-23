@@ -17,11 +17,37 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=256)
 
 
+class ForgotPasswordRequest(BaseModel):
+    """Password-reset request (email only)."""
+
+    email: str = Field(max_length=255)
+
+
+class ResetPasswordRequest(BaseModel):
+    """Password-reset completion payload."""
+
+    token: str = Field(min_length=16, max_length=128)
+    password: str = Field(min_length=1, max_length=256)
+
+
+class GoogleLoginRequest(BaseModel):
+    """Google Sign-In payload: the ID token from Google Identity Services."""
+
+    credential: str = Field(min_length=16, max_length=8192)
+
+
+class MessageResponse(BaseModel):
+    """Neutral operational message (never leaks account existence)."""
+
+    message: str
+
+
 class UserResponse(BaseModel):
     """Public user representation (never includes password hash)."""
 
     id: int
     email: str
+    points: int
 
 
 class ErrorResponse(BaseModel):

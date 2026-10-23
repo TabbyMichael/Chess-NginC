@@ -10,15 +10,6 @@ const LABELS: Record<Status, string> = {
   abandoned: 'Abandoned',
 };
 
-const STATUS_VARIANTS: Record<Status, string> = {
-  active: 'game-status active',
-  checkmate: 'game-status checkmate',
-  stalemate: 'game-status stalemate',
-  draw: 'game-status draw',
-  resigned: 'game-status resigned',
-  abandoned: 'game-status resigned',
-};
-
 export default function GameStatusBanner({
   status,
   inCheck,
@@ -27,9 +18,9 @@ export default function GameStatusBanner({
   inCheck: boolean;
 }) {
   return (
-    <div role="status" aria-live="polite" className={STATUS_VARIANTS[status]}>
-      <strong>{LABELS[status]}</strong>
-      {status === 'active' && inCheck && <span> — check!</span>}
-    </div>
+    <span role="status" aria-live="polite" className={`status-pill ${status}`}>
+      {LABELS[status]}
+      {status === 'active' && inCheck && ' — check!'}
+    </span>
   );
 }

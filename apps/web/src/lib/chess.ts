@@ -3,6 +3,8 @@
  * outcomes; these helpers only render positions and preview UX hints.
  * FEN parsing here is display-only — moves are always validated server-side.
  */
+import { Chess } from 'chess.js';
+import type { Square as ChessJsSquare } from 'chess.js';
 
 export type Square = string; // e.g. 'e4'
 
@@ -14,30 +16,6 @@ export type Piece = {
 export type BoardMap = Map<Square, Piece>;
 
 const FILES = 'abcdefgh';
-const GLYPHS: Record<string, string> = {
-  k: '♚',
-  q: '♛',
-  r: '♜',
-  b: '♝',
-  n: '♞',
-  p: '♟',
-};
-
-/** Full Unicode glyph set for a piece (white uses outline glyphs). */
-export function glyph(piece: Piece): string {
-  const black = GLYPHS[piece.kind];
-  if (piece.color === 'b') return black;
-  // White outline variants.
-  const white: Record<string, string> = {
-    '♚': '♔',
-    '♛': '♕',
-    '♜': '♖',
-    '♝': '♗',
-    '♞': '♘',
-    '♟': '♙',
-  };
-  return white[black];
-}
 
 /** Parse the piece-placement field of a FEN into a square→piece map. */
 export function parseFenPlacement(fen: string): BoardMap {
@@ -69,6 +47,21 @@ export function sideToMove(fen: string): 'w' | 'b' {
   return fen.split(' ')[1] === 'b' ? 'b' : 'w';
 }
 
+/**
+ * Squares the piece on `square` could legally move to — a UX preview only
+ * (dots on empty targets, rings on captures). Returns [] for unparsable
+ * positions or when no friendly piece is on the square; the server remains
+ * the sole authority on whether a submitted move is legal.
+ */
+export function legalTargets(fen: string, square: string): string[] {
+  try {
+    const game = new Chess(fen);
+    return game.moves({ square: square as ChessJsSquare, verbose: true }).map((m) => m.to);
+  } catch {
+    return [];
+  }
+}
+
 /** All 64 squares in display order (rank 8 → 1). */
 export function allSquares(): Square[] {
   const squares: Square[] = [];
@@ -90,13 +83,30 @@ export function isLightSquare(square: Square): boolean {
 /** Standard starting position piece counts per color. */
 const START_COUNTS: Record<Piece['kind'], number> = { p: 8, n: 2, b: 2, r: 2, q: 1, k: 1 };
 
+/** Standard piece values for material counts (kings excluded). */
+const PIECE_VALUES: Record<Piece['kind'], number> = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+
+/**
+ * Material balance from surviving pieces (display-only): positive means
+ * White is ahead, negative means Black is ahead, pawns = 1.
+ */
+export function materialBalance(fen: string): number {
+  const board = parseFenPlacement(fen);
+  let balance = 0;
+  for (const piece of board.values()) {
+    const value = PIECE_VALUES[piece.kind];
+    balance += piece.color === 'w' ? value : -value;
+  }
+  return balance;
+}
+
 /**
  * Captured pieces per side, derived by diffing the starting material against
  * the current position (WEB-018). Display-only; the server owns game state.
  */
 export function capturedPieces(fen: string): {
-  capturedByWhite: string[];
-  capturedByBlack: string[];
+  capturedByWhite: Piece['kind'][];
+  capturedByBlack: Piece['kind'][];
 } {
   const board = parseFenPlacement(fen);
   const present: Record<Piece['color'], Record<Piece['kind'], number>> = {
@@ -116,7 +126,7 @@ export function capturedPieces(fen: string): {
 
   return {
     // Black pieces that vanished were captured by White, and vice versa.
-    capturedByWhite: missing('b').map((kind) => glyph({ kind, color: 'b' })),
-    capturedByBlack: missing('w').map((kind) => glyph({ kind, color: 'w' })),
+    capturedByWhite: missing('b'),
+    capturedByBlack: missing('w'),
   };
 }
