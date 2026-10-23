@@ -6,12 +6,14 @@
  * and the page falls back to REST polling — the game stays playable.
  */
 import { API_BASE } from './api-client';
-import type { GameResponse } from './api-types';
+import type { AchievementResponse, GameResponse } from './api-types';
 
 export type WsEvent =
   | { type: 'game_state'; payload: GameResponse }
   | { type: 'opponent_joined'; payload: { color: string } }
   | { type: 'opponent_left'; payload: Record<string, never> }
+  /** Private to this seat: achievements are never broadcast to the opponent. */
+  | { type: 'achievement'; payload: { items: AchievementResponse[] } }
   | { type: 'pong'; payload: Record<string, never> }
   | { type: 'error'; payload: { detail: string } };
 

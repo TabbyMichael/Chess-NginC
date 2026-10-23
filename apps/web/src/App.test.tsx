@@ -38,9 +38,15 @@ describe('App routing (WEB-004/005/006/008)', () => {
   it('renders the dashboard when a session is restored', async () => {
     vi.spyOn(api, 'me').mockResolvedValueOnce({ id: 1, email: 'a@b.co', points: 0 });
     vi.spyOn(api, 'listGames').mockResolvedValueOnce([]);
+    vi.spyOn(api, 'listAchievements').mockResolvedValueOnce({
+      total: 2,
+      unlocked: 0,
+      items: [],
+    });
     renderApp('/');
     expect(await screen.findByText('a@b.co')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Your Games' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Achievements' })).toBeInTheDocument();
   });
 
   it('logs in from the login form and lands on the dashboard', async () => {
@@ -49,6 +55,7 @@ describe('App routing (WEB-004/005/006/008)', () => {
       .spyOn(api, 'login')
       .mockResolvedValueOnce({ id: 1, email: 'a@b.co', points: 0 });
     const list = vi.spyOn(api, 'listGames').mockResolvedValueOnce([]);
+    vi.spyOn(api, 'listAchievements').mockResolvedValueOnce({ total: 0, unlocked: 0, items: [] });
     const { user } = renderApp('/login');
 
     await user.type(screen.getByLabelText('Email'), 'a@b.co');

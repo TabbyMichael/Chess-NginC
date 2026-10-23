@@ -1,17 +1,20 @@
 /**
  * Dashboard (WEB-009/020/021/022/023): new-game setup (mode + difficulty),
  * saved-game listing, player statistics and achievements.
- * All stats and achievement states are derived from real game data — nothing
- * is invented; metrics that the API cannot support are omitted.
+ * Game statistics are derived from the listed games; the achievement strip is
+ * the server's own catalog progress (GET /me/achievements), so nothing here is
+ * guessed from the client's point of view.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
-import { Clock, Coins, Cpu, Crown, Flag, Play, Trophy, Users } from 'lucide-react';
+import { ArrowRight, Coins, Cpu, Play, Users } from 'lucide-react';
 
 import { useAuth } from '../app/useAuth';
 import { ApiError, api } from '../lib/api-client';
-import type { GameMode, GameResponse, GameStatus } from '../lib/api-types';
+import type { AchievementListResponse, GameMode, GameResponse, GameStatus } from '../lib/api-types';
+import { TIER_LABELS, formatCounter, newestUnlocked, sortForGallery } from '../lib/achievements';
+import { GROUP_ICONS, DEFAULT_GROUP_ICON } from '../lib/achievement-icons';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
@@ -34,6 +37,8 @@ const DIFFICULTIES = [
   { depth: 5, label: 'Hard' },
 ] as const;
 
+const PREVIEW_LIMIT = 6;
+
 const STATUS_META: Record<GameStatus, { label: string; badge: string }> = {
   active: { label: 'In progress', badge: 'badge badge-accent' },
   checkmate: { label: 'Checkmate', badge: 'badge' },
@@ -47,6 +52,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [games, setGames] = useState<GameResponse[]>([]);
+  const [achievements, setAchievements] = useState<AchievementListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<GameMode>('computer');
@@ -71,6 +77,21 @@ export default function Dashboard() {
     };
   }, []);
 
+  // The achievement strip is decorative next to the board list, so a failure
+  // here only hides the strip; the gallery page reports its own errors.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .listAchievements()
+      .then((result) => {
+        if (!cancelled) setAchievements(result);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const stats = useMemo(() => {
     const count = (status: GameStatus) => games.filter((g) => g.status === status).length;
     return {
@@ -80,7 +101,6 @@ export default function Dashboard() {
       draws: count('draw') + count('stalemate'),
       resigned: count('resigned'),
       moves: games.reduce((sum, g) => sum + g.moves.length, 0),
-      longest: games.reduce((max, g) => Math.max(max, g.moves.length), 0),
     };
   }, [games]);
 
@@ -103,6 +123,21 @@ export default function Dashboard() {
   }
 
   const difficultyLabel = DIFFICULTIES.find((d) => d.depth === depth)?.label ?? '';
+
+  const recentUnlocks = useMemo(
+    () => (achievements ? newestUnlocked(achievements.items, PREVIEW_LIMIT) : []),
+    [achievements],
+  );
+  // Players with no unlocks yet still want to see what is closest. If the
+  // whole catalog reads zero, the strip stays empty rather than posturing.
+  const closest = useMemo(() => {
+    if (!achievements || recentUnlocks.length > 0) return [];
+    return sortForGallery(achievements.items.filter((item) => !item.unlocked)).slice(
+      0,
+      PREVIEW_LIMIT,
+    );
+  }, [achievements, recentUnlocks]);
+  const tiles = recentUnlocks.length > 0 ? recentUnlocks : closest;
 
   return (
     <main id="main-content">
@@ -251,34 +286,48 @@ export default function Dashboard() {
         <Card className="span-full">
           <div className="card-title">
             <h2>Achievements</h2>
-            <span className="u-text-xs u-muted">Earned from your saved games</span>
+            <span className="u-text-xs u-muted">
+              {achievements
+                ? `${achievements.unlocked} of ${achievements.total} unlocked`
+                : 'Earned by playing'}
+            </span>
           </div>
-          <div className="achievement-grid">
-            <Badge
-              name="First Move"
-              desc="Play your first move"
-              icon={<Flag size={18} />}
-              unlocked={stats.moves > 0}
-            />
-            <Badge
-              name="Checkmate King"
-              desc="Finish a game by checkmate"
-              icon={<Crown size={18} />}
-              unlocked={stats.checkmates > 0}
-            />
-            <Badge
-              name="Regular"
-              desc="Play three or more games"
-              icon={<Trophy size={18} />}
-              unlocked={stats.total >= 3}
-            />
-            <Badge
-              name="Endurance"
-              desc="Reach 40+ moves in one game"
-              icon={<Clock size={18} />}
-              unlocked={stats.longest >= 40}
-            />
-          </div>
+          {tiles.length > 0 ? (
+            <div className="achievement-grid">
+              {tiles.map((item) => {
+                // Map lookup keeps the glyph identity stable across re-renders.
+                const Icon = GROUP_ICONS[item.group] ?? DEFAULT_GROUP_ICON;
+                return (
+                  <Badge
+                    key={item.key}
+                    name={item.title}
+                    desc={item.description}
+                    icon={<Icon size={18} />}
+                    unlocked={item.unlocked}
+                    className={`tier-${item.tier}`}
+                    progress={item.unlocked ? 1 : item.progress}
+                    detail={
+                      item.unlocked
+                        ? (TIER_LABELS[item.tier] ?? item.tier)
+                        : formatCounter(item.value, item.threshold)
+                    }
+                  />
+                );
+              })}
+            </div>
+          ) : (
+            <p className="hint">
+              {achievements
+                ? 'Nothing earned yet — play a move and the first tiles unlock instantly.'
+                : 'Achievement progress is unavailable right now.'}
+            </p>
+          )}
+          <p className="achievement-preview-link">
+            <Link to="/achievements">
+              {recentUnlocks.length > 0 ? 'All achievements' : 'Open the achievement gallery'}
+              <ArrowRight size={14} aria-hidden="true" />
+            </Link>
+          </p>
         </Card>
       </div>
     </main>

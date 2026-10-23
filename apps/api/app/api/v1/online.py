@@ -16,6 +16,7 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 from starlette.websockets import WebSocketDisconnect
 
+from app.api.v1.achievements import celebrate_at_end
 from app.api.v1.deps import (
     SESSION_COOKIE,
     check_move_rate,
@@ -162,7 +163,7 @@ def submit_online_move(
         )
     except _ONLINE_ERRORS as exc:
         raise as_http_exception(exc) from None
-    return to_game_response(detail)
+    return to_game_response(detail, celebrate_at_end(db, detail, current_user.id))
 
 
 @router.post(
@@ -185,7 +186,7 @@ def resign_online_game(
         detail = online_service.resign_online_game(db, game_id, current_user.id)
     except _ONLINE_ERRORS as exc:
         raise as_http_exception(exc) from None
-    return to_game_response(detail)
+    return to_game_response(detail, celebrate_at_end(db, detail, current_user.id))
 
 
 @router.post(
@@ -204,7 +205,7 @@ def claim_online_draw(
         detail = online_service.claim_online_draw(db, game_id, current_user.id)
     except _ONLINE_ERRORS as exc:
         raise as_http_exception(exc) from None
-    return to_game_response(detail)
+    return to_game_response(detail, celebrate_at_end(db, detail, current_user.id))
 
 
 # --- WebSocket ---------------------------------------------------------
@@ -215,6 +216,9 @@ def _ws_call(fn_name: str, game_id: int, user_id: int, payload: dict[str, Any]) 
 
     Never share a session across sockets/messages: each unit of work opens,
     commits, and closes one session (§12 pitfall).
+
+    Returns the actor's game state; any unlocks it carries belong to the actor
+    alone, so the caller must not broadcast them to the opponent.
     """
     db = SessionLocal()
     try:
@@ -231,7 +235,7 @@ def _ws_call(fn_name: str, game_id: int, user_id: int, payload: dict[str, Any]) 
             detail = fn(db, game_id, user_id)
         else:  # pragma: no cover - dispatch table above is exhaustive
             raise RuntimeError(fn_name)
-        return dict(to_game_response(detail).model_dump())
+        return dict(to_game_response(detail, celebrate_at_end(db, detail, user_id)).model_dump())
     finally:
         db.close()
 
@@ -366,7 +370,15 @@ async def online_ws(websocket: WebSocket, game_id: int = Query(default=0)) -> No
                     game_id, user_id, {"type": "error", "payload": {"detail": str(exc)}}
                 )
                 continue
-            await hub.broadcast(game_id, {"type": "game_state", "payload": new_state})
+            # Achievements are personal: the shared broadcast keeps the exact
+            # response shape but carries none, and the actor gets its own list.
+            unlocks = new_state.get("unlocked_achievements") or []
+            shared = {**new_state, "unlocked_achievements": []}
+            await hub.broadcast(game_id, {"type": "game_state", "payload": shared})
+            if unlocks:
+                await hub.send_to(
+                    game_id, user_id, {"type": "achievement", "payload": {"items": unlocks}}
+                )
     except WebSocketDisconnect:
         pass
     finally:

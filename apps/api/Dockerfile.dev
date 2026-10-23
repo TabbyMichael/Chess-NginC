@@ -1,7 +1,8 @@
 # Chess Engine API — development image (local dev only).
 # Installs the Stockfish binary so engine moves + benchmarks work out of the box.
 # GPL-3.0 (REL-011): the binary is installed from the distro at build time and is
-# NOT redistributed by this repo. Production intentionally omits it (see Dockerfile).
+# NOT redistributed by this repo. Production ships it too (PLAY-001: the real
+# Stockfish opponent), so both images carry the same apt layer.
 FROM python:3.12-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -27,4 +28,4 @@ COPY alembic.ini ./alembic.ini
 EXPOSE 8000
 
 # Default: migrate then serve. Compose overrides keep this contract.
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --ws-max-size 4096"]

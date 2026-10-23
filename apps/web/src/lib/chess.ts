@@ -62,6 +62,24 @@ export function legalTargets(fen: string, square: string): string[] {
   }
 }
 
+/**
+ * True only when `from`→`to` is a *legal* move that requires a promotion.
+ * The picker must not appear for a pawn merely pointing at the back rank from
+ * a non-promotion square (e.g. e2→e8): that square is not a legal target, so
+ * the move is rejected by the server and no piece choice should be offered.
+ */
+export function isLegalPromotion(fen: string, from: string, to: string): boolean {
+  try {
+    const game = new Chess(fen);
+    const hit = game
+      .moves({ square: from as ChessJsSquare, verbose: true })
+      .find((m) => m.to === to);
+    return hit ? Boolean(hit.promotion) : false;
+  } catch {
+    return false;
+  }
+}
+
 /** All 64 squares in display order (rank 8 → 1). */
 export function allSquares(): Square[] {
   const squares: Square[] = [];

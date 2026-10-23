@@ -7,6 +7,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /srv/api
 
+# Real Stockfish opponent (PLAY-001) + review analysis need the binary in the
+# image; provenance is recorded in app/engine/stockfish.py (GPL-3.0, BEN-003).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends stockfish \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install runtime deps first for layer caching.
 COPY pyproject.toml README.md ./
 COPY app ./app

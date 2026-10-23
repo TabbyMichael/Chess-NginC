@@ -8,6 +8,7 @@ custom search engine; only services/benchmark harnesses use it.
 from __future__ import annotations
 
 import contextlib
+import os
 import shutil
 import time
 from dataclasses import dataclass
@@ -34,6 +35,15 @@ STOCKFISH_APT_VERSION = "16-1build1"  # Ubuntu noble/universe at time of writing
 # Hard bounds (BEN-006): adapter never exceeds these even if asked for more.
 STOCKFISH_MAX_DEPTH = 15
 STOCKFISH_MAX_TIME_MS = 1000
+
+# Engine startup: a cold process has to handshake and load its eval network, and
+# on a busy container that can outlast python-chess' 10 s default — it then raises
+# a bare TimeoutError and the player gets a 503 for a perfectly good engine. Allow
+# a longer handshake and one bounded retry so a transient stall does not fail the
+# move. Warm batches (ANL-003) pay this once per pass instead of once per position.
+STOCKFISH_STARTUP_TIMEOUT_S = 20.0
+STOCKFISH_STARTUP_ATTEMPTS = 2
+STOCKFISH_STARTUP_RETRY_DELAY_S = 0.25
 
 # Review bounds (ANL-007): post-game analysis may search deeper/longer than
 # live play. Still bounded — never unbounded. Play path uses the tight bounds.
@@ -78,11 +88,25 @@ class StockfishError(Exception):
     """Stockfish crashed or misbehaved during analysis."""
 
 
+# Distro packages do not always land on PATH: Debian/Ubuntu install Stockfish to
+# /usr/games/stockfish, and slim container images keep /usr/games off PATH — so an
+# image that ships the package can still report it missing. Probing these
+# well-known locations makes that image work with zero configuration. They are
+# constants, never client input (BEN-020); an explicit STOCKFISH_PATH still wins.
+STOCKFISH_PACKAGE_PATHS: tuple[str, ...] = (
+    "/usr/games/stockfish",  # Debian/Ubuntu apt package
+    "/usr/bin/stockfish",  # Alpine / Homebrew / symlinked installs
+    "/usr/local/bin/stockfish",
+    "/opt/homebrew/bin/stockfish",  # macOS Homebrew on Apple Silicon
+)
+
+
 class StockfishProvider:
     """Stockfish-backed EngineProvider (ANL-001/ANL-002/ANL-007).
 
-    Stateless w.r.t. UCI processes for now: each analyse call opens a
-    short-lived engine (ANL-003's warm pool swaps in behind this seam).
+    Two lifetimes behind one seam: used bare, each `analyse` opens and retires a
+    process; used as a context manager, one warm process serves the whole batch
+    (ANL-003) — which is what a review pass is.
     """
 
     name = "stockfish"
@@ -90,6 +114,42 @@ class StockfishProvider:
     def __init__(self, config: StockfishConfig | None = None, *, for_review: bool = False) -> None:
         self._config = config or StockfishConfig()
         self._for_review = for_review
+        # Warm mode (ANL-003): inside `with`, one process serves every analyse in
+        # the batch instead of paying startup + eval-net load per position.
+        self._warm = False
+        self._engine: chess.engine.SimpleEngine | None = None
+        self._engine_binary = ""
+
+    def __enter__(self) -> StockfishProvider:
+        """Reuse one engine process for the calls that follow (a review pass).
+
+        The instance belongs to this batch and this thread: it is not shared
+        across requests and not safe to use concurrently.
+        """
+        self._warm = True
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self._warm = False
+        self.close()
+
+    def close(self) -> None:
+        """Quit the held process, if any. Idempotent (EngineProvider contract)."""
+        engine, self._engine, self._engine_binary = self._engine, None, ""
+        if engine is not None:
+            with contextlib.suppress(Exception):
+                engine.quit()
+
+    def _acquire(self, binary: str) -> chess.engine.SimpleEngine:
+        """The shared process when warm, a freshly started one when not."""
+        if self._engine is not None and self._engine_binary != binary:
+            # The configured engine changed under us: start over rather than
+            # quietly keep talking to a different binary.
+            self.close()
+        if self._engine is None:
+            self._engine = _start_engine(binary)
+            self._engine_binary = binary
+        return self._engine
 
     def analyse(self, request: AnalyseRequest) -> AnalysisResult:
         """Analyse a position, returning up to ``multipv`` ranked lines."""
@@ -103,11 +163,8 @@ class StockfishProvider:
         ).bounded(for_review=self._for_review)
         binary = resolve_binary(cfg.path)
         start = time.time()
-        try:
-            engine = chess.engine.SimpleEngine.popen_uci(binary)
-        except Exception as exc:
-            msg = f"Could not start Stockfish at {binary!r}: {exc}"
-            raise StockfishUnavailableError(msg) from exc
+        engine = self._acquire(binary)
+        completed = False
         try:
             with contextlib.suppress(chess.engine.EngineError):
                 engine.configure(
@@ -128,6 +185,7 @@ class StockfishProvider:
                 (int(i.get("depth", cfg.max_depth)) for i in dict_infos), default=cfg.max_depth
             )
             nodes = max((int(i.get("nodes", 0)) for i in dict_infos), default=0)
+            completed = True
             return AnalysisResult(
                 fen=request.fen,
                 lines=lines,
@@ -137,8 +195,11 @@ class StockfishProvider:
                 provider=self.name,
             )
         finally:
-            with contextlib.suppress(Exception):
-                engine.quit()
+            # Per-call mode always hands the process back; warm mode keeps it
+            # alive only when the analysis actually succeeded, so a crashed
+            # engine is replaced on the next position instead of reused.
+            if not self._warm or not completed:
+                self.close()
 
 
 def _line_from_info(
@@ -191,9 +252,29 @@ def resolve_binary(configured_path: str = "") -> str:
     found = shutil.which("stockfish")
     if found:
         return found
+    for candidate in STOCKFISH_PACKAGE_PATHS:
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
     raise StockfishUnavailableError(
         "Stockfish binary not found. Install the 'stockfish' package or set STOCKFISH_PATH."
     )
+
+
+def _start_engine(binary: str) -> chess.engine.SimpleEngine:
+    """Open a UCI engine with a tolerant, bounded startup (see bounds above).
+
+    Only the *startup* is retried — an engine that dies mid-analysis stays a
+    StockfishError, because replaying a search is not the same failure.
+    """
+    last: Exception | None = None
+    for attempt in range(STOCKFISH_STARTUP_ATTEMPTS):
+        try:
+            return chess.engine.SimpleEngine.popen_uci(binary, timeout=STOCKFISH_STARTUP_TIMEOUT_S)
+        except Exception as exc:
+            last = exc
+            if attempt + 1 < STOCKFISH_STARTUP_ATTEMPTS:
+                time.sleep(STOCKFISH_STARTUP_RETRY_DELAY_S)
+    raise StockfishUnavailableError(f"Could not start Stockfish at {binary!r}: {last}")
 
 
 def analyse_position(
@@ -211,10 +292,7 @@ def analyse_position(
     cfg = (config or StockfishConfig()).bounded()
     binary = resolve_binary(cfg.path)
     start = time.time()
-    try:
-        engine = chess.engine.SimpleEngine.popen_uci(binary)
-    except Exception as exc:
-        raise StockfishUnavailableError(f"Could not start Stockfish at {binary!r}: {exc}") from exc
+    engine = _start_engine(binary)
     try:
         with contextlib.suppress(chess.engine.EngineError):
             engine.configure({"Threads": cfg.threads, "Hash": cfg.hash_mb})

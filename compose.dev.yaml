@@ -13,7 +13,14 @@ services:
       context: ./apps/api
       dockerfile: Dockerfile.dev
     environment:
+      # compose replaces the whole `environment` map here, so every value the API
+      # needs must be repeated — keeping the db/secret lines is what stops a
+      # `--dev` override from silently blanking the development database URL.
+      database_url: postgresql+psycopg://${POSTGRES_USER:-chess}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-chess_engine}
+      secret_key: ${SECRET_KEY:?set SECRET_KEY in .env}
       # Debian/Ubuntu place the stockfish binary here, which is NOT on PATH.
       # Uses explicit $VAR form so it is read from .env; set STOCKFISH_PATH in
       # .env to override (e.g. a locally-built binary).
       stockfish_path: ${STOCKFISH_PATH:-/usr/games/stockfish}
+      stockfish_api_key: ${STOCKFISH_API_KEY:-}
+      stockfish_api_base_url: ${STOCKFISH_API_BASE_URL:-https://stockfishapi.com/v1}

@@ -111,14 +111,18 @@ describe('GamePage moves (WEB-011/019/025)', () => {
     expect(await screen.findByRole('list', { name: 'move history' })).toHaveTextContent('e4');
   });
 
-  it('surfaces an illegal move as an error without changing the board', async () => {
-    vi.spyOn(api, 'submitMove').mockRejectedValueOnce(new ApiError(422, 'Illegal move'));
+  it('does not show an error banner for a rejected move (sound only)', async () => {
+    const submit = vi
+      .spyOn(api, 'submitMove')
+      .mockRejectedValueOnce(new ApiError(422, 'Illegal move'));
     vi.spyOn(api, 'getGame').mockResolvedValue(game());
     const { user } = renderGame('/games/7');
 
     await clickMove(user, 'e2', 'e5');
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Illegal move');
+    await waitFor(() => expect(submit).toHaveBeenCalled());
+    // A wrong move is felt, not read: no error banner is rendered.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     // Board unchanged: pawn still on e2.
     expect(screen.getByRole('gridcell', { name: /^e2,/ })).toHaveAccessibleName('e2, white p');
   });
@@ -224,13 +228,11 @@ describe('GamePage moves (WEB-011/019/025)', () => {
 describe('GamePage promotion (WEB-015)', () => {
   it('asks which piece to promote to before sending the move', async () => {
     const submit = vi.spyOn(api, 'submitMove').mockResolvedValue(game({ version: 2 }));
-    // White pawn on b7 ready to promote on a8.
-    vi.spyOn(api, 'getGame').mockResolvedValue(
-      game({ fen: '1nb1kbn1/1P1ppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1' }),
-    );
+    // White pawn on e7 with an empty e8: a legal one-step promotion.
+    vi.spyOn(api, 'getGame').mockResolvedValue(game({ fen: '7k/4P3/8/8/8/8/8/4K3 w - - 0 1' }));
     const { user } = renderGame('/games/7');
 
-    await clickMove(user, 'b7', 'a8');
+    await clickMove(user, 'e7', 'e8');
 
     // Picker appears before any request is sent.
     const dialog = await screen.findByRole('dialog');
@@ -238,7 +240,22 @@ describe('GamePage promotion (WEB-015)', () => {
 
     await user.click(within(dialog).getByRole('button', { name: /promote to n/i }));
 
-    expect(submit).toHaveBeenCalledWith(7, { uci: 'b7a8n', expected_version: 1 });
+    expect(submit).toHaveBeenCalledWith(7, { uci: 'e7e8n', expected_version: 1 });
+  });
+
+  it('does not open the picker for a pawn outside promotion territory', async () => {
+    // Regression: touching the back rank from a square the pawn cannot reach
+    // in one move must NOT offer pieces — the old check keyed only on the pawn
+    // plus rank 8, so e4→e8 wrongly showed the picker.
+    const submit = vi.spyOn(api, 'submitMove').mockResolvedValue(game({ version: 2 }));
+    vi.spyOn(api, 'getGame').mockResolvedValue(game({ fen: '7k/8/8/8/4P3/8/8/4K3 w - - 0 1' }));
+    const { user } = renderGame('/games/7');
+
+    await clickMove(user, 'e4', 'e8');
+
+    // No picker; the (illegal) move is simply sent to the server instead.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(submit).toHaveBeenCalledWith(7, { uci: 'e4e8', expected_version: 1 });
   });
 });
 
@@ -285,75 +302,6 @@ describe('GamePage status and engine (WEB-013/014/020/021)', () => {
 
     await screen.findByRole('heading', { name: /Game #7/ });
     expect(screen.queryByRole('button', { name: /Engine move/ })).not.toBeInTheDocument();
-  });
-});
-
-describe('GamePage status, promotion and engine (WEB-013/015/020/021)', () => {
-  it('asks which piece to promote to, then sends the chosen letter', async () => {
-    const submit = vi.spyOn(api, 'submitMove').mockResolvedValue(game({ version: 2 }));
-    // White pawn on b7 ready to promote on a8.
-    vi.spyOn(api, 'getGame').mockResolvedValue(
-      game({ fen: '1nb1kbn1/1P1ppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1' }),
-    );
-    const { user } = renderGame('/games/7');
-
-    await clickMove(user, 'b7', 'a8');
-
-    // The dialog appears before any request is sent.
-    const dialog = await screen.findByRole('dialog');
-    expect(submit).not.toHaveBeenCalled();
-
-    await user.click(within(dialog).getByRole('button', { name: /promote to n/i }));
-
-    expect(submit).toHaveBeenCalledWith(7, { uci: 'b7a8n', expected_version: 1 });
-  });
-
-  it('announces checkmate as game over and locks controls', async () => {
-    vi.spyOn(api, 'getGame').mockResolvedValue(
-      game({
-        status: 'checkmate',
-        fen: 'rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3',
-      }),
-    );
-    renderGame('/games/7');
-
-    expect(await screen.findByText(/Checkmate/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Resign' })).toBeDisabled();
-  });
-
-  it('announces stalemate as a draw', async () => {
-    vi.spyOn(api, 'getGame').mockResolvedValue(
-      game({ status: 'stalemate', fen: 'k7/8/1Q6/8/8/8/8/K7 b - - 0 1' }),
-    );
-    renderGame('/games/7');
-    expect(await screen.findByText(/Stalemate/)).toBeInTheDocument();
-  });
-
-  it('offers an engine move in computer mode', async () => {
-    vi.spyOn(api, 'getGame').mockResolvedValue(game({ mode: 'computer' }));
-    renderGame('/games/7');
-    expect(await screen.findByRole('button', { name: /Engine move/ })).toBeInTheDocument();
-  });
-
-  it('hides the engine move button in local mode', async () => {
-    vi.spyOn(api, 'getGame').mockResolvedValue(game({ mode: 'local' }));
-    renderGame('/games/7');
-    await screen.findByRole('heading', { name: /Game #7/ });
-    expect(screen.queryByRole('button', { name: /Engine move/ })).not.toBeInTheDocument();
-  });
-
-  it('requests an engine move at the chosen depth', async () => {
-    const engineMove = vi.spyOn(api, 'engineMove').mockResolvedValue(game({ version: 2 }));
-    vi.spyOn(api, 'getGame').mockResolvedValue(game({ mode: 'computer' }));
-    const { user } = renderGame('/games/7');
-
-    await user.click(await screen.findByRole('button', { name: /Engine move/ }));
-
-    expect(engineMove).toHaveBeenCalledWith(7, {
-      expected_version: 1,
-      max_depth: 3,
-      max_time_ms: 2000,
-    });
   });
 });
 

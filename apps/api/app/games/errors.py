@@ -28,3 +28,7 @@ class InvalidFenError(ChessRulesError):
     def __init__(self, fen: str) -> None:
         self.fen = fen
         super().__init__(f"Invalid FEN: {fen!r}")
+
+
+class EngineUnavailableError(Exception):
+    """The Stockfish opponent is missing or failed (mapped to 503)."""
