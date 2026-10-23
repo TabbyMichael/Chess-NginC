@@ -537,3 +537,227 @@ vitest (lobby 4, online board 7 with faked socket); suite 70 → 81 green.
 **Next recommended task.** Online Phase 5 (restart-drain messaging, replay
 protection via game move caps) + WEB-029 Playwright e2e covering the lobby
 flow; then Track B (Game Analysis, Phase 9).
+
+---
+
+## Session 2026-10-23 (m) — Play feel, real opponent, game review, achievements
+
+**Scope.** Four product gaps in one batch, sequenced so each landed green before
+the next started: (P1) sound + haptic feedback with a promotion-picker bug fix,
+(P2) Stockfish as the actual computer opponent, (P3) post-game engine review that
+grades and explains every move, (P4) a 200+ achievement catalog with
+celebrations. Tracked as Phase 10 (FEEL/PLAY/REVIEW/ACH) in `PROJECT_CHECKLIST.md`.
+
+**What was built.**
+- **P1 — play feel.** `lib/sound.ts` (synthesized WebAudio presets per event,
+  intensity-scaled gain, inert without WebAudio), `lib/haptics.ts` (Vibration
+  patterns, prefers-reduced-motion aware), `lib/settings.ts` (localStorage prefs
+  + subscribe), `lib/game-events.ts` (`classifyMove` + `emitMoveSequence`, which
+  walks plies FEN-forward so your own move, the engine reply and an online
+  broadcast are classified against the position they were made from),
+  `lib/useGameFeedback.ts`, `SoundToggle`, wired into `GamePage` +
+  `OnlineGamePage`. A rejected move now plays the error sound **without** a
+  banner. Promotion fix: `isLegalPromotion` (chess.js) gates the picker, so a
+  pawn tapping the last rank outside promotion territory no longer opens it.
+- **P2 — opponent.** `app/engine/opponent.py` answers computer games through the
+  existing `EngineProvider` seam with bounded Stockfish (`DIFFICULTY_*` depth
+  mapping keeps the difficulty UI meaningful); failures surface as `503`
+  `EngineUnavailableError` rather than silently reverting to the old minimax.
+  `tests/conftest.py` grew a `fake_binary` fixture (PATH-resolved UCI script
+  emitting multiplexed `info … multipv N` lines) so the whole suite stays
+  hermetic without a real engine installed.
+- **P3 — game review.** `app/engine/classifier.py` (seven grades from centipawn
+  loss against a MultiPV=3 window, mate-distance blending, forced-move and
+  sacrifice context, published thresholds), `app/reviews/explainer.py` (rule
+  templates that cite stored facts: capture victim, missed alternative, praise
+  for the engine's own move), `app/reviews/service.py` (bounded analysis pass,
+  per-(game, player) storage, `force` updates in place), model + migration
+  `c5e9a3d7f410`, `POST/GET /games/{id}/review` (404/409/422 semantics) and the
+  frontend `/games/:id/review` page: SVG eval graph (`EvalGraph.tsx`),
+  click-a-ply board replay via stored `pre_fen`, report card, improvement list
+  filtered to the colour you played, re-analyse button.
+- **P4 — achievements.** `app/achievements/catalog.py` (32 ladders over one
+  metric each = **316** entries, bronze→legendary, import-time asserts on key
+  uniqueness and the 200+ requirement), `stats.py` (SQL `FILTER` aggregates over
+  stored moves by SAN pattern, point-ledger results, review payload grades,
+  active-day streaks), `service.py` (idempotent `flush`, gallery, pending,
+  `mark_seen`), model + migration `d7f3b0c9e512`, `GET /me/achievements`,
+  `GET /me/achievements/new`, `POST /me/achievements/seen`. Unlocks **ride** the
+  response that earned them (`GameResponse.unlocked_achievements`, review
+  responses) and the private WS `achievement` event is sent to one seat only.
+  Frontend: `AchievementContext` queue (de-dupes ride vs lazy catch-up),
+  confetti toast with rarity ring + auto-dismiss + acknowledgement,
+  `/achievements` gallery (grouped, filterable, progress bars), dashboard strip
+  of real recent unlocks replacing the four hardcoded mock badges.
+
+**Defects discovered & fixed during the work.**
+- `Move.uci` is a **method** in python-chess, not a property (mypy caught it);
+  `chess.square_relative` does not exist — the en-passant victim is
+  `to_square ^ 0x10` when the move is en passant.
+- `force: true` review generation would have inserted a second row per
+  (game, player) and violated `uq_game_review_per_user`; `generate_or_get` now
+  reuses and updates the stored row.
+- Reviews read through `GameRepository.get_moves`, which filters on the owner
+  column (mirroring the White seat) — an online **Black** reviewer got an empty
+  move list. Replaced with an explicit unfiltered select for the review path.
+- eslint `react` rule rejected a synchronous `setState` inside the review page's
+  load effect; restructured into a promise chain that only setStates in callbacks.
+- `OnlineGamePage` used the strict `useAchievements()` hook, which throws when a
+  page renders without the provider (it broke the existing online tests); added a
+  tolerant `useAchievementsOptional()` so feedback stays layered on the board.
+- The private-socket celebration test asserted the toast with the default 1 s
+  `findByText` window while the backend suite was competing for CPU on the same
+  runner, and timed out. The assertion waits on two independent chains (auth
+  restore gates the queue, then the socket event), so it now allows 3 s instead
+  of relying on an idle machine.
+
+**Tests.** Backend 188 → **245** pytest (`test_opponent` 4, `test_reviews` 17,
+`test_achievements` 31 incl. catalog-vs-stats metric coverage, ride delivery and
+"never the opponent"); OpenAPI contract test now requires the review and the
+three achievement paths. Frontend 81 → **143** vitest across 15 files (+35
+achievement tests: helper maths, gallery, toast timers, provider de-duplication,
+private socket event, provider-less page).
+
+**Gates.** ruff check + format (82 files), mypy (59 files), `alembic upgrade
+head` from an empty database + `alembic check` (no drift), full pytest; eslint,
+`tsc --noEmit`, vitest, `vite build` (383.67 kB JS / 119.60 kB gzip, 30.39 kB
+CSS) and `prettier --check .` — all pass locally (CI runs the same commands).
+
+**Decisions / known limits.**
+- D7/D8/D9 recorded in `docs/architecture.md`: Stockfish opponent with no silent
+  weaker fallback; achievement catalog in code with only unlock rows in the DB;
+  review computed synchronously once per (game, player) and served from storage.
+- Heavy achievement aggregation runs on terminal game transitions and on demand
+  (`GET /me/achievements/new`), not on every ply.
+- `wins/draws/losses/active_days/best_streak_days` derive from the point ledger,
+  which local hot-seat games never write — a local-only player sees 0 for those
+  metrics (their mode-specific ladders still count games). Registered as debt.
+- Not yet built from the Phase 9 design: worker pool, win-probability model, eval
+  cache, async analysis jobs, tactics detection, ELO-aware thresholds, PGN import,
+  retry-the-move (kept `[ ]` in the checklist with what partially exists noted).
+
+
+## Session 2026-10-23 (n) — "Stockfish binary not found" in the running stack
+
+**Report.** The live compose stack answered computer moves with
+`Stockfish binary not found. Install the 'stockfish' package or set STOCKFISH_PATH.`,
+and the player pointed at `STOCKFISH_API_KEY` in `.env` expecting it to be the engine.
+
+**Root cause.** The production image *does* install Stockfish (`apt-get install
+stockfish`, added with PLAY-001), but Debian ships it to `/usr/games/stockfish`
+and slim images keep `/usr/games` off `PATH`. `compose.yaml` passes
+`stockfish_path: ${STOCKFISH_PATH:-}` and `.env` leaves it empty, so
+`resolve_binary()` had only a `PATH` lookup to work with and concluded there was
+no engine in an image that contains one. The dev image had been saved all along
+only because `compose.dev.yaml` hardcodes `/usr/games/stockfish`.
+
+**The API key is dead config.** `settings.stockfish_api_key` is loaded and read
+by nothing — there is no hosted provider implementation. `.env` / `.env.example`
+now say so explicitly instead of advertising "cloud engine, no binary needed".
+
+**Fixes.**
+- `resolve_binary()` probes a constant list of distro package locations after
+  `PATH` (`/usr/games`, `/usr/bin`, `/usr/local/bin`, `/opt/homebrew/bin`), with
+  an explicit `STOCKFISH_PATH` still winning. Never client input (BEN-020).
+- Engine startup is now tolerant and bounded: `_start_engine()` asks python-chess
+  for a 20 s handshake (default 10 s) and retries once. Live verification hit an
+  intermittent `503 Could not start Stockfish ...` with an *empty* reason — a bare
+  `TimeoutError` from a stalled UCI handshake under CPU contention, i.e. an
+  engine that was present and fine being reported as unavailable.
+- **Accuracy was inverted.** `_accuracy()` shipped as
+  `103 * (1 - e^(-acl/150))`, which grows with centipawn loss: a game in which
+  every ply was the engine's own top choice reported **0%**. It is now
+  `100 * e^(-acl/250)` (100 flawless, ~96 at acl 10, ~67 at acl 100, ~37 at the
+  scale point), documented as an approximation rather than a calibrated model.
+  The old test only asserted `0 <= accuracy <= 100`, which the wrong formula
+  satisfied — the new tests pin the anchors and the direction.
+- `docs/deployment.md` §10 rewritten: the binary is not vendored but *is*
+  installed into both images, publishing such an image is redistribution under
+  GPL-3.0, discovery order, and that a missing binary now means a clean 503 with
+  **no** fallback to the custom engine (D7) — the previous text claimed the
+  custom engine kept running.
+
+**Verified against the real binary in the container** (`docker compose build api
+&& up -d`): `resolve_binary()` → `/usr/games/stockfish`; 10/10 consecutive engine
+moves succeeded (0.37–1.62 s each, previously one 503 in ten); a finished 20-ply
+game reviewed in 24.6 s with sensible accuracy (`w: 20, b: 72`) and cached on the
+follow-up `GET`; 11 achievements rode one resign response.
+
+**New defects found by that verification, recorded not papered over.**
+- TD-013 now carries the measured cost: ~1.2 s per ply, one spawned process per
+  ply, synchronous — a long game is a multi-minute request.
+- TD-017: moves outside the engine's MultiPV=3 window are charged the
+  `_OFF_TABLE_CP = -800` placeholder, so six of twenty plies were labelled
+  "blunder — gives up 8.0 pawns" for moves that were simply not the engine's
+  first choice. The grades are systematically too harsh off-window; fixing it
+  needs the off-window position evaluated for real (ANL-003/ANL-005 first).
+
+**Tests & gates.** Backend 245 → **254** pytest (+5 engine resolution/startup,
++4 accuracy), full suite green; `ruff check`, `ruff format --check` (82 files),
+`mypy app` (59 files) clean; image rebuilt and health-checked. No frontend change
+in this session (143 vitest still valid).
+
+
+## Session 2026-10-24 (o) — TD-017 off-window grading, ANL-003 warm engine, hosted Stockfish fallback
+
+**Report (again).** The player still saw
+`Stockfish binary not found. Install the 'stockfish' package or set STOCKFISH_PATH.`
+in the browser and pointed at `STOCKFISH_API_KEY` in the repo-root `.env`,
+expecting the hosted key to be the engine. Two independent problems.
+
+**Root causes.**
+1. The literal was a *stale persisted review row* (status `failed`) from before
+   session (n) shipped the distro-path probe. The rebuilt container already
+   resolves `/usr/games/stockfish`; the banner clears only when a fresh review
+   overwrites the row.
+2. The hosted key genuinely did nothing: `Settings` uses
+   `env_file=".env"` **relative to the process cwd**, so a host `uvicorn` loads
+   `apps/api/.env` (no key), while the repo-root `.env` is only read by
+   `docker compose` for interpolation. And there was no hosted provider at all
+   — the key was dead config (as session (n) recorded).
+
+**Shipped this session.**
+- **TD-017 (Resolved).** Off-window moves are graded from their own post-ply
+  evaluation (`_position_value`/`_line_score`, terminal-aware `_terminal_value`)
+  instead of the `-800` placeholder. On the same 20-ply smoke game the false
+  "blunder" count dropped 6 → 1, and the one left is a real ~420 cp loss.
+- **ANL-003 (done).** `StockfishProvider` is now a context manager: inside
+  `with`, one warm process serves the whole review batch; a failed analysis
+  drops the process rather than reusing a dead one. Measured 20-ply review
+  **~12 s** warm-batch vs **~24.6 s** one-process-per-ply (TD-013 repaid in part
+  — ANL-008 job queue still open for long games).
+- **Hosted provider (`app/engine/cloud_stockfish.py`).** A real
+  `CloudStockfishProvider` behind the same `EngineProvider` seam, for
+  stockfishapi.com `POST /eval`. Bounded depth (free plan ≤14), one bounded
+  retry, RFC-9457 problem summary that never echoes the key or raw body, and a
+  **runtime calibration probe** for the undocumented score POV (Black-to-move,
+  queen-up FEN; defaults to mover-POV if the probe fails, cached process-wide).
+- **Provider factory (`app/engine/factory.py`).** One local-first / hosted-
+  fallback decision shared by play (`opponent.py`) and review (`reviews/service.py`):
+  resolve a binary, else use the key, else raise one error naming both fixes.
+  Review records the answering engine (`review.provider = provider.name`).
+- **`BatchedEngineProvider`** protocol added to `provider.py` so the review's
+  `with` usage is typed for both providers.
+- **Env wiring.** `compose.yaml` and `compose.dev.yaml` forward
+  `STOCKFISH_API_KEY` / `STOCKFISH_API_BASE_URL` into the api container (dev
+  override now repeats the full env map because compose replaces, not merges).
+  `apps/api/.env` mirrors the key so host `uvicorn` reads it too; the stale
+  "NOT WIRED UP" comments in `.env`/`.env.example` are corrected.
+- **`requirements.lock`.** Added the runtime deps that were declared but
+  untracked: `requests`, `urllib3`, `google-auth`, `pyasn1`, `pyasn1_modules`.
+
+**Live verification.** Against the running container: register → computer game →
+10 engine moves (avg 0.5–0.8 s, slowest 2.3 s) → resign → 20-ply review
+`status=completed provider=stockfish` in ~12 s, grade distribution sensible (no
+false-blunder pile-up). The hosted route was exercised with a fake-hidden binary:
+the factory returns `CloudStockfishProvider`; a live probe returned the account's
+documented `402 Payment method required`, surfaced cleanly as a `503` — the key
+works as wiring, but this account is not yet enabled for paid usage, which is
+why the local binary stays the primary path.
+
+**Tests & gates.** Backend **254 → 291** pytest (+30+ cloud-provider/factory,
++off-window grading, +warm-engine lifecycle); `ruff check`, `ruff format --check`,
+`mypy app` clean; frontend 143 vitest unchanged (no web code change beyond the
+review `provider` field already surfaced). Conftest disarms both local and hosted
+Stockfish so no test ever touches a real engine or the network.
+

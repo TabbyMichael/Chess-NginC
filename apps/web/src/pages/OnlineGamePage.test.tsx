@@ -8,9 +8,10 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
+import { AchievementProvider } from '../app/AchievementContext';
 import { AuthProvider } from '../app/AuthContext';
 import { api } from '../lib/api-client';
-import type { GameResponse } from '../lib/api-types';
+import type { AchievementResponse, GameResponse } from '../lib/api-types';
 import OnlineGamePage from './OnlineGamePage';
 
 // Fake socket transport: captures lifecycle callbacks, records sends, and
@@ -165,10 +166,68 @@ describe('OnlineGamePage (online-plan §6)', () => {
     await waitFor(() => expect(ws.sent).toContainEqual({ type: 'resign' }));
   });
 
-  it('surfaces socket errors as an alert', async () => {
+  it('handles socket errors with a sound, no banner', async () => {
     renderOnline();
     await screen.findByText(/You play White/);
     ws.emit?.({ type: 'error', payload: { detail: 'It is not your turn' } });
-    expect(await screen.findByRole('alert')).toHaveTextContent('not your turn');
+    // A rejected move is felt, not read: the error is an audio cue only.
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+  });
+
+  it('celebrates the private achievement event', async () => {
+    const unlock: AchievementResponse = {
+      key: 'moves_total-10',
+      title: 'Opening Moves',
+      description: 'Play 10 moves',
+      metric: 'moves_total',
+      threshold: 10,
+      tier: 'bronze',
+      group: 'play',
+    };
+    vi.spyOn(api, 'newAchievements').mockResolvedValue([]);
+    vi.spyOn(api, 'me').mockResolvedValue({ id: 1, email: 'a@b.co', points: 0 });
+    vi.spyOn(api, 'getOnlineGame').mockResolvedValue(game());
+    render(
+      <MemoryRouter initialEntries={['/online/7']}>
+        <AuthProvider>
+          <AchievementProvider>
+            <Routes>
+              <Route path="/online/:id" element={<OnlineGamePage />} />
+            </Routes>
+          </AchievementProvider>
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+
+    await screen.findByText(/You play White/);
+    ws.emit?.({ type: 'achievement', payload: { items: [unlock] } });
+    // The queue only renders once the auth restore resolves (a `user` gates it),
+    // so this waits on two async chains at once — allow the page some slack.
+    expect(
+      await screen.findByText('Opening Moves', undefined, { timeout: 3000 }),
+    ).toBeInTheDocument();
+  });
+
+  it('plays without a celebration provider mounted', async () => {
+    // The queue is presentation on top of the board: a bare page still works.
+    renderOnline();
+    expect(await screen.findByText(/You play White/)).toBeInTheDocument();
+    ws.emit?.({
+      type: 'achievement',
+      payload: {
+        items: [
+          {
+            key: 'moves_total-10',
+            title: 'Opening Moves',
+            description: 'Play 10 moves',
+            metric: 'moves_total',
+            threshold: 10,
+            tier: 'bronze',
+            group: 'play',
+          },
+        ],
+      },
+    });
+    expect(screen.queryByText('Opening Moves')).not.toBeInTheDocument();
   });
 });

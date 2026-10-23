@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 
 import App from './App';
+import { AchievementProvider } from './app/AchievementContext';
 import { AuthProvider } from './app/AuthContext';
 import { ThemeProvider } from './app/theme';
 import './styles.css';
@@ -17,7 +18,9 @@ createRoot(rootElement).render(
     <BrowserRouter>
       <ThemeProvider>
         <AuthProvider>
-          <App />
+          <AchievementProvider>
+            <App />
+          </AchievementProvider>
         </AuthProvider>
       </ThemeProvider>
     </BrowserRouter>

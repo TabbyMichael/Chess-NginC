@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   allSquares,
   capturedPieces,
+  isLegalPromotion,
   isLightSquare,
   legalTargets,
   materialBalance,
@@ -153,5 +154,38 @@ describe('legalTargets', () => {
   it('respects the side to move', () => {
     // After 1.e4 it is Black's move: White's e-pawn has no targets.
     expect(legalTargets(AFTER_CAPTURE, 'e2')).toEqual([]);
+  });
+});
+
+describe('isLegalPromotion', () => {
+  // White pawn on e7 with an empty e8: a legal one-step promotion.
+  const PROMOTION_FEN = '7k/4P3/8/8/8/8/8/4K3 w - - 0 1';
+  // Same pawn one rank earlier: e4→e8 is not a legal move at all.
+  const FAR_FEN = '7k/8/8/8/4P3/8/8/4K3 w - - 0 1';
+
+  it('is true for a legal pawn move reaching the last rank', () => {
+    expect(isLegalPromotion(PROMOTION_FEN, 'e7', 'e8')).toBe(true);
+  });
+
+  it('is false when the pawn merely points at the back rank from far away', () => {
+    // Regression: the old picker keyed on piece + rank alone and offered
+    // pieces for e4→e8 even though the move itself was illegal.
+    expect(isLegalPromotion(FAR_FEN, 'e4', 'e8')).toBe(false);
+  });
+
+  it('is false for an illegal diagonal step onto the back rank', () => {
+    // b7→a8 with a8 empty: not a legal pawn move, so no picker.
+    const fen = '1nb1kbn1/1P1ppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+    expect(isLegalPromotion(fen, 'b7', 'a8')).toBe(false);
+  });
+
+  it('is false for a non-promoting move and for enemy pieces', () => {
+    expect(isLegalPromotion(START_FEN, 'e2', 'e4')).toBe(false);
+    expect(isLegalPromotion(PROMOTION_FEN, 'e7', 'e6')).toBe(false);
+    expect(isLegalPromotion(PROMOTION_FEN, 'h8', 'g8')).toBe(false);
+  });
+
+  it('is false for a malformed FEN instead of throwing', () => {
+    expect(isLegalPromotion('nonsense', 'e7', 'e8')).toBe(false);
   });
 });

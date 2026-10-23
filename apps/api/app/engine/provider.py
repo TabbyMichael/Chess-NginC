@@ -62,3 +62,29 @@ class EngineProvider(Protocol):
     def analyse(self, request: AnalyseRequest) -> AnalysisResult:
         """Analyse a position, returning ranked principal variations."""
         ...
+
+    def close(self) -> None:
+        """Release whatever resources the engine holds (ANL-003).
+
+        A batch caller (a review pass) opens one process and must hand it back.
+        Repeatable and safe to call on a provider that never started anything.
+        """
+        ...
+
+
+class BatchedEngineProvider(EngineProvider, Protocol):
+    """A provider a batch may hold open (ANL-003).
+
+    `with` on the local adapter keeps one warm process across a review pass; on
+    a hosted provider it only keeps the connection pool and the learned score
+    convention. Both honor the protocol, so a review pass cannot tell — and must
+    not care — which engine it is talking to.
+    """
+
+    def __enter__(self) -> EngineProvider:
+        """Start holding the engine for the calls that follow."""
+        ...
+
+    def __exit__(self, *exc_info: object) -> None:
+        """Hand the engine back. Idempotent with `close`."""
+        ...

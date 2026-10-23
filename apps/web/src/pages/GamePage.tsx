@@ -13,11 +13,15 @@ import Chessboard from '../components/Chessboard';
 import GameStatusBanner from '../components/GameStatus';
 import MoveHistory from '../components/MoveHistory';
 import PlayerInfo from '../components/PlayerInfo';
+import SoundToggle from '../components/SoundToggle';
 import ConfirmDialog from '../components/ui/Modal';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
+import { useAchievementRide } from '../app/useAchievementRide';
 import { ApiError, api } from '../lib/api-client';
 import { capturedPieces, materialBalance, sideToMove } from '../lib/chess';
+import { emitError, emitSelect } from '../lib/game-events';
+import { useGameFeedback } from '../lib/useGameFeedback';
 import type { GameResponse } from '../lib/api-types';
 
 type PendingConfirm = 'resign' | 'reset' | null;
@@ -60,7 +64,7 @@ export default function GamePage() {
   }, [gameId, badId]);
 
   const run = useCallback(
-    async (fn: (g: GameResponse) => Promise<GameResponse>) => {
+    async (fn: (g: GameResponse) => Promise<GameResponse>, opts?: { move?: boolean }) => {
       if (!game || busy) return;
       setBusy(true);
       setError(null);
@@ -76,7 +80,12 @@ export default function GamePage() {
             /* keep existing state on refetch failure */
           }
         }
-        setError(err instanceof ApiError ? err.message : 'Action failed');
+        // A rejected move is felt, not read: error sound, no banner.
+        if (opts?.move && err instanceof ApiError && err.status === 422) {
+          emitError();
+        } else {
+          setError(err instanceof ApiError ? err.message : 'Action failed');
+        }
       } finally {
         setBusy(false);
       }
@@ -88,7 +97,9 @@ export default function GamePage() {
     (from: string, to: string, promotion?: string) => {
       // UCI promotion moves always carry a piece letter; the picker defaults to 'q'.
       const uci = `${from}${to}${promotion ?? ''}`;
-      void run((g) => api.submitMove(gameId, { uci, expected_version: g.version }));
+      void run((g) => api.submitMove(gameId, { uci, expected_version: g.version }), {
+        move: true,
+      });
     },
     [run, gameId],
   );
@@ -126,6 +137,11 @@ export default function GamePage() {
         /* points are cosmetic; keep the previous value on failure */
       });
   }, [game]);
+
+  // Move feedback (sound + haptics) for the player's, engine's, and any new plies.
+  useGameFeedback(game);
+  // Achievements unlocked by the action that produced this state (ACH-006).
+  useAchievementRide(game);
 
   const handleReset = useCallback(async () => {
     if (!game) return;
@@ -208,6 +224,11 @@ export default function GamePage() {
               : 'Two players'}
           </span>
           <GameStatusBanner status={game.status} inCheck={inCheck} />
+          {finished && !noMoves && (
+            <Link to={`/games/${game.id}/review`} className="badge badge-accent">
+              Review game
+            </Link>
+          )}
         </div>
       </header>
       {error && (
@@ -229,7 +250,10 @@ export default function GamePage() {
               fen={game.fen}
               status={game.status}
               selected={selected}
-              onSelect={setSelected}
+              onSelect={(square) => {
+                if (square) emitSelect();
+                setSelected(square);
+              }}
               onMove={handleMove}
               disabled={busy}
               lastMove={
@@ -273,6 +297,7 @@ export default function GamePage() {
           <Card>
             <h2>Actions</h2>
             <div className="game-actions">
+              <SoundToggle />
               <div className="action-row">
                 <Button
                   variant="ghost"

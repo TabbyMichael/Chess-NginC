@@ -11,12 +11,17 @@ import Chessboard from '../components/Chessboard';
 import GameStatusBanner from '../components/GameStatus';
 import MoveHistory from '../components/MoveHistory';
 import PlayerInfo from '../components/PlayerInfo';
+import SoundToggle from '../components/SoundToggle';
 import ConfirmDialog from '../components/ui/Modal';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { useAuth } from '../app/useAuth';
+import { useAchievementsOptional } from '../app/useAchievements';
+import { useAchievementRide } from '../app/useAchievementRide';
 import { ApiError, api } from '../lib/api-client';
 import { capturedPieces, materialBalance, sideToMove } from '../lib/chess';
+import { emitError, emitSelect } from '../lib/game-events';
+import { useGameFeedback } from '../lib/useGameFeedback';
 import type { GameResponse } from '../lib/api-types';
 import { OnlineSocket, type WsEvent } from '../lib/online-ws';
 
@@ -38,6 +43,9 @@ export default function OnlineGamePage() {
 
   const gameId = Number(id);
   const badId = !Number.isFinite(gameId);
+  // Private socket unlocks arrive outside the response ride, so this page
+  // needs the queue itself — optionally, so it still renders without a provider.
+  const celebrate = useAchievementsOptional()?.celebrate;
 
   useEffect(() => {
     if (badId) return;
@@ -76,8 +84,12 @@ export default function OnlineGamePage() {
           setNotice('Opponent connected.');
         } else if (event.type === 'opponent_left') {
           setNotice('Opponent disconnected — they still get your moves over REST.');
+        } else if (event.type === 'achievement') {
+          // Private to this seat: the server never broadcasts unlocks (§6).
+          celebrate?.(event.payload.items);
         } else if (event.type === 'error') {
-          setError(event.payload.detail);
+          // A rejected action is felt, not read (wrong move → error sound only).
+          emitError();
         }
       },
       setConnected,
@@ -88,7 +100,7 @@ export default function OnlineGamePage() {
       socketRef.current = null;
       socket.close();
     };
-  }, [gameId, badId, loading, hasGame]);
+  }, [gameId, badId, loading, hasGame, celebrate]);
 
   const finished = game !== null && game.status !== 'active';
   useEffect(() => {
@@ -121,7 +133,10 @@ export default function OnlineGamePage() {
             type: 'move',
             payload: { uci: uci ?? '', expected_version: g.version },
           });
-          if (!sent) setGame(await api.submitOnlineMove(gameId, { uci: uci ?? '', expected_version: g.version }));
+          if (!sent)
+            setGame(
+              await api.submitOnlineMove(gameId, { uci: uci ?? '', expected_version: g.version }),
+            );
         } else {
           const sent = socketRef.current?.send({ type: action });
           if (!sent) {
@@ -141,7 +156,12 @@ export default function OnlineGamePage() {
             /* keep existing state on resync failure */
           }
         }
-        setError(err instanceof ApiError ? err.message : 'Action failed');
+        // A rejected move is felt, not read: error sound, no banner.
+        if (action === 'move' && err instanceof ApiError && err.status === 422) {
+          emitError();
+        } else {
+          setError(err instanceof ApiError ? err.message : 'Action failed');
+        }
       } finally {
         setBusy(false);
       }
@@ -156,6 +176,11 @@ export default function OnlineGamePage() {
     },
     [game, sendOrRest],
   );
+
+  // Move feedback for broadcasts, REST fallback, and the opponent's plies.
+  useGameFeedback(game);
+  // Achievements unlocked by this seat's own action (ACH-006).
+  useAchievementRide(game);
 
   const captures = useMemo(
     () => (game ? capturedPieces(game.fen) : { capturedByWhite: [], capturedByBlack: [] }),
@@ -211,6 +236,15 @@ export default function OnlineGamePage() {
             {connected ? 'Live' : 'Polling'}
           </span>
           <GameStatusBanner status={game.status} inCheck={inCheck} />
+          {finished && game.moves.length > 0 && (
+            <Link
+              to={`/games/${game.id}/review`}
+              state={{ backTo: `/online/${game.id}` }}
+              className="badge badge-accent"
+            >
+              Review game
+            </Link>
+          )}
         </div>
       </header>
       {error && (
@@ -237,7 +271,10 @@ export default function OnlineGamePage() {
               fen={game.fen}
               status={game.status}
               selected={selected}
-              onSelect={setSelected}
+              onSelect={(square) => {
+                if (square) emitSelect();
+                setSelected(square);
+              }}
               onMove={handleMove}
               disabled={busy || !myTurn}
               lastMove={
@@ -267,6 +304,7 @@ export default function OnlineGamePage() {
           <Card>
             <h2>Actions</h2>
             <div className="game-actions">
+              <SoundToggle />
               <Button
                 variant="ghost"
                 onClick={() => void sendOrRest('draw_claim', game)}
@@ -285,8 +323,8 @@ export default function OnlineGamePage() {
               </Button>
             </div>
             <p className="hint" style={{ marginTop: 'var(--space-4)' }}>
-              The server validates every move and turn. Broadcasts arrive on the
-              socket; if it drops, the page falls back to polling.
+              The server validates every move and turn. Broadcasts arrive on the socket; if it
+              drops, the page falls back to polling.
             </p>
           </Card>
         </aside>

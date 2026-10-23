@@ -1189,6 +1189,34 @@ html[data-theme='dark'] .captured-piece {
   grid-template-columns: 1fr 1fr;
   gap: var(--space-2);
 }
+.sound-toggle {
+  display: flex;
+  gap: var(--space-2);
+}
+.toggle-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--rule);
+  background: var(--surface);
+  color: var(--ink-faint);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+.toggle-chip:hover {
+  border-color: var(--accent);
+}
+.toggle-chip.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
 .hint {
   font-size: 0.75rem;
   color: var(--ink-faint);
@@ -1438,5 +1466,431 @@ html[data-theme='dark'] .captured-piece {
   *::after {
     animation: none !important;
     transition: none !important;
+  }
+}
+/* Post-game review (REVIEW-006): board + graph + graded move list. */
+.review-page {
+  padding: var(--space-4) 0;
+}
+.review-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.review-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 1.1fr) minmax(300px, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .review-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.review-board-col,
+.review-side-col {
+  display: grid;
+  gap: var(--space-4);
+}
+.review-current-move {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-3) 0 0;
+}
+.review-explanation {
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+.review-accuracy {
+  margin-left: auto;
+  font-size: 0.85rem;
+  color: var(--accent);
+}
+.eval-graph svg {
+  display: block;
+  width: 100%;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm, 6px);
+}
+.graph-zero {
+  stroke: var(--rule);
+}
+.graph-line {
+  stroke: var(--accent);
+}
+.graph-dot {
+  fill: var(--accent);
+  cursor: pointer;
+}
+.graph-dot.active {
+  fill: var(--warning);
+}
+.graph-legend {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: var(--ink-faint);
+  margin: var(--space-2) 0 0;
+}
+.quality {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  background: var(--neutral-badge);
+  color: var(--ink-soft);
+}
+.quality-brilliant {
+  background: #d9c7f5;
+  color: #4c2a7d;
+}
+.quality-best {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.quality-excellent {
+  background: #d7ecdc;
+  color: #21603f;
+}
+.quality-inaccuracy {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+.quality-mistake {
+  background: #f8e2d4;
+  color: #93441d;
+}
+.quality-blunder {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.quality-legend {
+  list-style: none;
+  margin: var(--space-2) 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+.quality-row {
+  display: grid;
+  grid-template-columns: 1.75rem 1fr auto;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.85rem;
+}
+.improvement-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: var(--space-1);
+}
+.improvement {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.improvement:hover {
+  border-color: var(--accent);
+}
+.review-move-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-1);
+  max-height: 26rem;
+  overflow-y: auto;
+}
+.review-move {
+  display: grid;
+  grid-template-columns: 2rem 1.75rem 4rem 1fr;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.review-move:hover {
+  border-color: var(--rule);
+}
+.review-move.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.review-move-number {
+  color: var(--ink-faint);
+  font-size: 0.75rem;
+  text-align: right;
+}
+.review-san {
+  font-weight: 700;
+}
+.review-san.side-b {
+  color: var(--ink-soft);
+}
+.review-excerpt {
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+}
+
+/* ---------- achievements (ACH-005/006/007) ---------------------------- */
+
+/* Rarity accent per band: the tile ring, its icon and the toast all read it
+   through one variable, so a tier is styled in exactly one place. */
+.tier-bronze {
+  --tier: #b0743c;
+}
+.tier-silver {
+  --tier: #8d9aa4;
+}
+.tier-gold {
+  --tier: #d3a11d;
+}
+.tier-diamond {
+  --tier: #4aa3c7;
+}
+.tier-legendary {
+  --tier: #8e5cd9;
+}
+
+/* Progress bar and counter on a locked tile (Badge). */
+.achievement-progress {
+  display: block;
+  height: 4px;
+  margin-top: var(--space-1);
+  border-radius: 999px;
+  background: var(--rule);
+  overflow: hidden;
+}
+.achievement-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--ink-faint);
+}
+.achievement.unlocked .achievement-progress-fill {
+  background: var(--tier, var(--accent));
+}
+.achievement-counter {
+  font-size: 0.6875rem;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+.achievement.unlocked {
+  border-color: var(--tier, var(--accent));
+}
+.achievement.unlocked .achievement-icon {
+  color: var(--tier, var(--accent));
+}
+
+/* Gallery page layout. */
+.achievements-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.achievements-header h1 {
+  margin-bottom: var(--space-1);
+}
+.achievement-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.achievement-summary-bar {
+  flex: 1;
+  max-width: 22rem;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--rule);
+  overflow: hidden;
+}
+.achievement-summary-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: inherit;
+  transition: width var(--transition);
+}
+.achievement-summary-text {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+.achievement-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-5);
+}
+.achievement-section {
+  margin-bottom: var(--space-6);
+}
+.achievement-section-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  font-size: 1rem;
+  color: var(--ink-soft);
+}
+.achievement-grid + .achievement-grid {
+  margin-top: var(--space-3);
+}
+.achievement-footnote {
+  text-align: left;
+  line-height: 1.6;
+}
+/* Dashboard strip exit: a quiet right-aligned link under the preview tiles. */
+.achievement-preview-link {
+  display: flex;
+  justify-content: flex-end;
+  margin: var(--space-3) 0 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+.achievement-preview-link a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* Celebration toast: one achievement at a time, anchored out of the board. */
+.celebration-host {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: min(23rem, calc(100vw - (var(--space-4) * 2)));
+  pointer-events: none;
+}
+.celebration {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  overflow: hidden;
+  padding: var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--tier, var(--accent));
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-pop);
+  pointer-events: auto;
+  animation: celebration-in 320ms ease-out;
+}
+.celebration-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--tier, var(--accent));
+}
+.celebration-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.celebration-kicker {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.celebration-title {
+  font-size: 0.9375rem;
+}
+.celebration-desc {
+  font-size: 0.8125rem;
+  color: var(--ink-soft);
+}
+.celebration-close {
+  margin-left: auto;
+  padding: var(--space-1);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--ink-faint);
+  cursor: pointer;
+}
+.celebration-close:hover {
+  color: var(--ink);
+  background: var(--surface-2);
+}
+.celebration-confetti {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.celebration-confetti i {
+  position: absolute;
+  top: -12%;
+  width: 6px;
+  height: 10px;
+  border-radius: 2px;
+  animation: confetti-fall 1100ms ease-in forwards;
+}
+@keyframes celebration-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes confetti-fall {
+  from {
+    opacity: 1;
+    transform: translateY(0) rotate(0deg);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(360%) rotate(220deg);
+  }
+}
+@media (max-width: 640px) {
+  .celebration-host {
+    left: var(--space-3);
+    right: var(--space-3);
+    bottom: var(--space-3);
+    max-width: none;
   }
 }

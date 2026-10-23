@@ -11,8 +11,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.engine.domain import EngineResult
-from app.engine.engine import ChessEngine
+from app.engine.opponent import OpponentMove
 from app.games.domain import Color
 from app.models.game import Game as GameRow
 from app.models.point_award import PointAward
@@ -123,17 +122,17 @@ def test_engine_checkmate_loss_bonus(
 ) -> None:
     """Engine (Black) mates the user: +loss only, and engine moves earn no point."""
 
-    def fake_search(self: object, board: chess.Board, for_color: Color) -> EngineResult:
-        return EngineResult(
-            best_move="a3a1",
-            score=-100,
-            depth=1,
-            nodes_searched=1,
-            time_ms=1,
-            termination="completed",
-        )
+    def fake_move(
+        board: chess.Board,
+        for_color: Color,
+        max_depth: int | None = None,
+        max_time_ms: int | None = None,
+    ) -> OpponentMove:
+        # The opponent seam is patched wholesale: the fake binary would not
+        # find mate here, and the ledger only records what it is told.
+        return OpponentMove(uci="a3a1", score_cp=-100, depth=1, nodes=1, time_ms=1)
 
-    monkeypatch.setattr(ChessEngine, "search", fake_search)
+    monkeypatch.setattr("app.engine.opponent.stockfish_move", fake_move)
     client, _ = authed_client
     game = _create(authed_client)
     row = db.get(GameRow, game["id"])

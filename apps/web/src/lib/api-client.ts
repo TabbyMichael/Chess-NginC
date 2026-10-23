@@ -3,6 +3,8 @@
  * All requests send same-origin cookies; base URL is configurable for prod.
  */
 import type {
+  AchievementListResponse,
+  AchievementResponse,
   CreateGameRequest,
   EngineMoveRequest,
   ErrorResponse,
@@ -15,6 +17,8 @@ import type {
   QueueResponse,
   RegisterRequest,
   ResetPasswordRequest,
+  ReviewRequest,
+  ReviewResponse,
   UserResponse,
   VersionRequest,
 } from './api-types';
@@ -81,13 +85,25 @@ export const api = {
   engineMove: (id: number, p: EngineMoveRequest) =>
     post<GameResponse>(`/games/${id}/engine-move`, p),
 
+  // Post-game engine review (REVIEW-001/005).
+  createGameReview: (id: number, p: ReviewRequest = {}) =>
+    post<ReviewResponse>(`/games/${id}/review`, p),
+  getGameReview: (id: number) => get<ReviewResponse>(`/games/${id}/review`),
+
   // Online play (online-plan §6): lobby queue + participant-scoped game routes.
   joinQueue: () => post<QueueResponse>('/online/queue'),
   leaveQueue: () => del<void>('/online/queue'),
   queueStatus: () => get<QueueResponse>('/online/queue'),
   listOnlineGames: () => get<GameResponse[]>('/online/games'),
   getOnlineGame: (id: number) => get<GameResponse>(`/online/games/${id}`),
-  submitOnlineMove: (id: number, p: MoveRequest) => post<GameResponse>(`/online/games/${id}/moves`, p),
+  submitOnlineMove: (id: number, p: MoveRequest) =>
+    post<GameResponse>(`/online/games/${id}/moves`, p),
   resignOnlineGame: (id: number) => post<GameResponse>(`/online/games/${id}/resign`),
   claimOnlineDraw: (id: number) => post<GameResponse>(`/online/games/${id}/draw-claim`),
+
+  // Achievements (ACH-005..007): gallery, lazy catch-up, acknowledgement.
+  listAchievements: () => get<AchievementListResponse>('/me/achievements'),
+  newAchievements: () => get<AchievementResponse[]>('/me/achievements/new'),
+  markAchievementsSeen: (keys: string[]) =>
+    post<MessageResponse>('/me/achievements/seen', { keys }),
 };

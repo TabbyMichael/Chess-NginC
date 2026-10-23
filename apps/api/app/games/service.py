@@ -282,11 +282,10 @@ def request_engine_move(
     max_depth: int | None = None,
     max_time_ms: int | None = None,
 ) -> GameDetail:
-    """Ask the custom engine for a move and persist it (API-012)."""
+    """Ask real Stockfish for a move and persist it (API-012, PLAY-001)."""
     import chess
 
-    from app.engine.domain import EngineConfig
-    from app.engine.engine import ChessEngine
+    from app.engine.opponent import stockfish_move
     from app.games.domain import Color
     from app.models.engine_run import EngineRun
 
@@ -300,27 +299,18 @@ def request_engine_move(
     if board.is_game_over():
         raise GameFinishedError("Game is over")
     for_color = Color.WHITE if board.turn == chess.WHITE else Color.BLACK
-    config = EngineConfig()
-    if max_depth is not None:
-        config = EngineConfig(
-            difficulty=config.difficulty, max_depth=max_depth, max_time_ms=config.max_time_ms
-        )
-    if max_time_ms is not None:
-        config = EngineConfig(
-            difficulty=config.difficulty, max_depth=config.max_depth, max_time_ms=max_time_ms
-        )
-    result = ChessEngine(config).search(board, for_color)
+    move = stockfish_move(board, for_color, max_depth, max_time_ms)
     pre_fen = game.fen  # the kernel mutates the row's FEN in place
-    rules, updated, _ = apply_and_store_move(db, repo, game, result.best_move, expected_version)
+    rules, updated, _ = apply_and_store_move(db, repo, game, move.uci, expected_version)
     db.add(
         EngineRun(
             game_id=game.id,
             fen=pre_fen,
-            best_move=result.best_move,
-            score=result.score,
-            depth=result.depth,
-            nodes_searched=result.nodes_searched,
-            time_ms=result.time_ms,
+            best_move=move.uci,
+            score=move.score_cp,
+            depth=move.depth,
+            nodes_searched=move.nodes,
+            time_ms=move.time_ms,
         )
     )
     db.commit()

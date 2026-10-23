@@ -5,9 +5,11 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.api.v1.achievements import celebrate, celebrate_at_end
 from app.api.v1.deps import enforce_same_origin, get_current_user, get_db_session
-from app.api.v1.serializers import as_http_exception, to_game_response
+from app.api.v1.serializers import as_http_exception, to_game_response, to_review_response
 from app.games import service as game_service
+from app.games.errors import EngineUnavailableError
 from app.games.service import (
     GameFinishedError,
     GameNotFoundError,
@@ -15,6 +17,8 @@ from app.games.service import (
     StaleVersionError,
 )
 from app.models.user import User
+from app.reviews import service as review_service
+from app.reviews.service import ReviewTargetError
 
 from .schemas import (
     CreateGameRequest,
@@ -22,6 +26,8 @@ from .schemas import (
     ErrorResponse,
     GameResponse,
     MoveRequest,
+    ReviewRequest,
+    ReviewResponse,
     VersionRequest,
 )
 
@@ -35,6 +41,11 @@ _SameOrigin = Depends(enforce_same_origin)  # noqa: E402
 
 def _to_response(detail: game_service.GameDetail) -> GameResponse:
     return to_game_response(detail)
+
+
+def _mutation_response(db: Session, detail: game_service.GameDetail, user_id: int) -> GameResponse:
+    """A mutation that ended a game carries its fresh unlocks (ACH-006)."""
+    return to_game_response(detail, celebrate_at_end(db, detail, user_id))
 
 
 def _map_errors(exc: Exception) -> HTTPException:
@@ -58,7 +69,10 @@ def create_game(
         game = game_service.create_game(db, current_user.id, payload.mode)
     except IllegalMoveRequestError as exc:
         raise _map_errors(exc) from None
-    return _to_response(game_service.get_game(db, game.id, current_user.id))
+    detail = game_service.get_game(db, game.id, current_user.id)
+    # Starting a game changes the counting stats (games/modes), so evaluate here;
+    # celebrating on the very first click is the point of the feature.
+    return to_game_response(detail, celebrate(db, current_user.id))
 
 
 @router.get("/games", response_model=list[GameResponse])
@@ -95,6 +109,12 @@ _MOVE_RESPONSES: dict[int | str, dict[str, object]] = {
     422: {"model": ErrorResponse},
 }
 
+# Engine moves can additionally fail with the Stockfish opponent down (PLAY-003).
+_ENGINE_MOVE_RESPONSES: dict[int | str, dict[str, object]] = {
+    **_MOVE_RESPONSES,
+    503: {"model": ErrorResponse},
+}
+
 
 @router.post(
     "/games/{game_id}/moves",
@@ -120,7 +140,7 @@ def submit_move(
         IllegalMoveRequestError,
     ) as exc:
         raise _map_errors(exc) from None
-    return _to_response(detail)
+    return _mutation_response(db, detail, current_user.id)
 
 
 @router.post(
@@ -168,7 +188,7 @@ def resign_game(
         detail = game_service.resign_game(db, game_id, current_user.id)
     except (GameNotFoundError, GameFinishedError) as exc:
         raise _map_errors(exc) from None
-    return _to_response(detail)
+    return _mutation_response(db, detail, current_user.id)
 
 
 @router.post(
@@ -191,13 +211,13 @@ def claim_draw(
         IllegalMoveRequestError,
     ) as exc:
         raise _map_errors(exc) from None
-    return _to_response(detail)
+    return _mutation_response(db, detail, current_user.id)
 
 
 @router.post(
     "/games/{game_id}/engine-move",
     response_model=GameResponse,
-    responses=_MOVE_RESPONSES,
+    responses=_ENGINE_MOVE_RESPONSES,
     dependencies=[_SameOrigin],
 )
 def engine_move(
@@ -206,7 +226,7 @@ def engine_move(
     current_user: Annotated[User, _CurrentUser],
     db: Annotated[Session, _DbSession],
 ) -> GameResponse:
-    """Request a custom-engine move within budget (API-012, SEC-013)."""
+    """Ask real Stockfish for a move within budget (API-012, SEC-013, PLAY-001)."""
     try:
         detail = game_service.request_engine_move(
             db,
@@ -221,6 +241,62 @@ def engine_move(
         StaleVersionError,
         GameFinishedError,
         IllegalMoveRequestError,
+        EngineUnavailableError,
     ) as exc:
         raise _map_errors(exc) from None
-    return _to_response(detail)
+    return _mutation_response(db, detail, current_user.id)
+
+
+_REVIEW_RESPONSES: dict[int | str, dict[str, object]] = {
+    401: {"model": ErrorResponse},
+    404: {"model": ErrorResponse},
+    422: {"model": ErrorResponse},
+}
+
+
+@router.post(
+    "/games/{game_id}/review",
+    response_model=ReviewResponse,
+    responses=_REVIEW_RESPONSES,
+    dependencies=[_SameOrigin],
+)
+def create_game_review(
+    game_id: int,
+    payload: ReviewRequest,
+    current_user: Annotated[User, _CurrentUser],
+    db: Annotated[Session, _DbSession],
+) -> ReviewResponse:
+    """Generate (or return the cached) engine review of a finished game (REVIEW-001)."""
+    try:
+        review = review_service.generate_or_get(db, game_id, current_user.id, force=payload.force)
+    except (GameNotFoundError, ReviewTargetError) as exc:
+        raise _map_errors(exc) from None
+    # Reviewing games is its own achievement track, so a finished analysis is
+    # worth an evaluation even though no game state changed.
+    unlocked = celebrate(db, current_user.id) if review.status == "completed" else []
+    return to_review_response(review, unlocked)
+
+
+@router.get(
+    "/games/{game_id}/review",
+    response_model=ReviewResponse,
+    responses={**_REVIEW_RESPONSES, 409: {"model": ErrorResponse}},
+)
+def get_game_review(
+    game_id: int,
+    current_user: Annotated[User, _CurrentUser],
+    db: Annotated[Session, _DbSession],
+) -> ReviewResponse:
+    """Return the caller's stored review without re-running the engine (REVIEW-005)."""
+    try:
+        # Access check shared with POST: unknown/foreign games → 404.
+        review_service.load_game(db, game_id, current_user.id)
+        review = review_service.get_existing(db, game_id, current_user.id)
+    except GameNotFoundError as exc:
+        raise _map_errors(exc) from None
+    if review is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No review exists yet for this game",
+        )
+    return to_review_response(review)

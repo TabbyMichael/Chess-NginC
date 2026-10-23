@@ -1,5 +1,6 @@
-"""Games API integration tests (API-005..009, SEC-010/011/020)."""
+"""Games API integration tests (API-005..009, SEC-010/011/020, PLAY-001/003)."""
 
+import pytest
 from fastapi.testclient import TestClient
 
 STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
@@ -125,7 +126,9 @@ def test_draw_claim_rejected_early(authed_client: tuple[TestClient, dict]) -> No
     assert client.post(f"/api/v1/games/{gid}/draw-claim").status_code == 422
 
 
-def test_engine_move(authed_client: tuple[TestClient, dict]) -> None:
+def test_engine_move(authed_client: tuple[TestClient, dict], fake_binary: str) -> None:
+    # The shared fake UCI engine stands in for real Stockfish (PLAY-001).
+    assert fake_binary  # fixture activates through PATH only
     client, _ = authed_client
     local_gid = _create(client, mode="local")["id"]
     refused = client.post(f"/api/v1/games/{local_gid}/engine-move", json={"expected_version": 1})
@@ -141,3 +144,14 @@ def test_engine_move(authed_client: tuple[TestClient, dict]) -> None:
     body = resp.json()
     assert body["version"] == 3
     assert len(body["moves"]) == 2
+
+
+def test_engine_move_503_when_stockfish_missing(
+    authed_client: tuple[TestClient, dict], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Opponent down → honest 503, not a silent fallback to a weaker engine.
+    monkeypatch.setenv("PATH", "/nonexistent")
+    client, _ = authed_client
+    gid = _create(client, mode="computer")["id"]
+    resp = client.post(f"/api/v1/games/{gid}/engine-move", json={"expected_version": 1})
+    assert resp.status_code == 503

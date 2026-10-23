@@ -12,6 +12,7 @@ import PieceIcon from './PieceIcon';
 import {
   allSquares,
   isLightSquare,
+  isLegalPromotion,
   legalTargets,
   parseFenPlacement,
   sideToMove,
@@ -60,10 +61,9 @@ export default function Chessboard({
   const turnLabel =
     status !== 'active' ? `Game over: ${status}` : `Turn: ${turn === 'w' ? 'White' : 'Black'}`;
   function isPromotionMove(from: string, to: string): boolean {
-    const piece = board.get(from);
-    if (!piece || piece.kind !== 'p') return false;
-    const toRank = to[1];
-    return (piece.color === 'w' && toRank === '8') || (piece.color === 'b' && toRank === '1');
+    // Legal promotion only: a pawn pointing at the back rank from a square it
+    // cannot reach in one move must NOT open the picker (the server rejects it).
+    return isLegalPromotion(fen, from, to);
   }
   function handleSquareClick(square: string) {
     if (disabled || status !== 'active') return;

@@ -33,9 +33,11 @@ FastAPI application (api)
 | `history` | Saving/retrieving games | Engine search |
 | `benchmark` | Position suites, comparisons, metrics | Normal game state |
 | `analysis` | Stored evals, win%, graphs, jobs (consumes engine results) | Search algorithms or invented evals |
-| `classification` | Move labels from structured analysis only | Guessing without engine proof fields |
+| `reviews` (`app/reviews`) | Post-game pass: replay stored plies → MultiPV analysis → per-move grade + coaching sentence → stored JSON payload | Search; re-analysing on a read |
+| `classification` | Move labels from structured analysis only (`app/engine/classifier.py`) | Guessing without engine proof fields |
+| `coaching` | Grounded explanations citing stored fields (`app/reviews/explainer.py`) | Inventing evals/variations |
+| `achievements` (`app/achievements`) | Code-defined catalog, stat aggregation from stored rows, per-player unlock records | Any client-supplied counting |
 | `tactics` | Pattern detectors over python-chess positions | Engine search or LLM judgement |
-| `coaching` | Grounded explanations citing stored fields | Inventing evals/variations |
 | `api` | HTTP schemas, status codes, request handling | Core chess algorithms |
 | `web` | User interactions and visual state | Trusted game outcomes |
 
@@ -46,6 +48,14 @@ FastAPI application (api)
 - The **analysis/classification/tactics/coaching** modules never invent chess facts:
   they consume stored engine output (evals, PVs, patterns) and cite it.
 - The **frontend** never determines authoritative outcomes or validates AI moves.
+  Sound, haptics and celebration animations are display-only layers: they read
+  the server's events and never influence a game (`lib/game-events.ts`,
+  `app/AchievementContext.tsx`).
+- **Achievement stats** are aggregated from stored game/move/point/review rows;
+  the catalog itself is code, so adding a milestone never needs a migration.
+- A **review** is computed once per (game, player) and served from storage;
+  reads never touch the engine, and the play path keeps the tight resource
+  bounds while review uses the wider `REVIEW_MAX_*` envelope.
 - Use **dependency injection** to provide engines and repositories to services.
 - Versioned API under `/api/v1`; all contracts explicit, validated, documented.
 
@@ -79,5 +89,8 @@ compose.yaml    local Docker Compose
 | D4 | npm as JS package manager (pnpm not installed) | Pending | Revisit if pnpm is added |
 | D5 | Docker Compose for local dev; document local-Postgres fallback (Docker not installed) | Pending | FND-018/019 |
 | D6 | Online human-vs-human play extends the modular monolith: Postgres stays authoritative; lobby queue, socket hub and rate-limiter are in-process state islands | Accepted | Single-replica assumption (online-plan §2): restarts drop queues/sockets but never games; scale-out requires moving ephemeral state to Redis/a broker — tracked as debt |
+| D7 | Computer games are answered by Stockfish through `app/engine/opponent.py`, not the custom minimax | Accepted | Difficulty maps client depth (1..6) onto bounded Stockfish depth. `app/engine/factory.py` is the single decision seam (local binary → `StockfishProvider`, else hosted `CloudStockfishProvider` when `STOCKFISH_API_KEY` is set) shared by play and review. An unreachable engine is `503`, never a silent fallback to a weaker opponent |
+| D8 | Achievement catalog in code, unlocks in one small table | Accepted | 200+ entries need no per-entry rows or migrations; unlocks ride mutation responses and are acknowledged once (`seen_at`) |
+| D9 | Game review runs synchronously and stores its payload | Accepted (debt) | Simple and cached per (game, player), but it holds a worker for up to `REVIEW_MAX_TIME_MS`; job queue + eval cache remain Phase 9 items (ANL-005/008) |
 
 See `docs/decisions/` for full decision records as they arise.

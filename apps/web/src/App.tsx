@@ -9,12 +9,14 @@ import { Link, NavLink, Route, Routes } from 'react-router-dom';
 
 import RequireAuth from './app/RequireAuth';
 import { useAuth } from './app/useAuth';
+import AchievementsPage from './pages/AchievementsPage';
 import ThemeToggle from './components/ThemeToggle';
 import UserMenu from './components/UserMenu';
 import Dashboard from './pages/Dashboard';
 import GamePage from './pages/GamePage';
 import LobbyPage from './pages/LobbyPage';
 import OnlineGamePage from './pages/OnlineGamePage';
+import ReviewPage from './pages/ReviewPage';
 import { ForgotPasswordPage, LoginPage, RegisterPage, ResetPasswordPage } from './pages/AuthPages';
 
 function Header() {
@@ -45,6 +47,12 @@ function Header() {
               className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
             >
               Play online
+            </NavLink>
+            <NavLink
+              to="/achievements"
+              className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
+            >
+              Achievements
             </NavLink>
           </nav>
         )}
@@ -93,6 +101,22 @@ export default function App() {
           element={
             <RequireAuth>
               <GamePage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/games/:id/review"
+          element={
+            <RequireAuth>
+              <ReviewPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/achievements"
+          element={
+            <RequireAuth>
+              <AchievementsPage />
             </RequireAuth>
           }
         />
