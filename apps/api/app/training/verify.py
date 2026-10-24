@@ -33,8 +33,11 @@ MIN_GAIN_CP = 100
 _MATERIAL_THEMES = frozenset({"hanging", "fork", "pin", "endgame", "skewer", "discovered"})
 # Themes proved by checkmate delivered by the solution itself.
 _MATE_THEMES = frozenset({"mate"})
+# Multi-move puzzles proved by replaying a whole forced line (opponent replies
+# are forced, so the line is deterministic and the win is real without a search).
+_SEQUENCE_THEMES = frozenset({"sequence"})
 # Every theme the catalog is allowed to use.
-VALID_THEMES = _MATE_THEMES | _MATERIAL_THEMES | frozenset({"backrank"})
+VALID_THEMES = _MATE_THEMES | _MATERIAL_THEMES | frozenset({"backrank"}) | _SEQUENCE_THEMES
 
 
 def material_balance(board: chess.Board) -> int:
@@ -133,6 +136,34 @@ def _verify_backrank(board: chess.Board, solution: chess.Move) -> str | None:
     return None
 
 
+def _verify_sequence(drill: Drill, board: chess.Board) -> str | None:
+    """Prove a multi-move line: every ply legal, opponent replies forced, ends
+    in checkmate or a decisive material gain. No search — the forced replies make
+    the line deterministic, so replaying it *is* the proof."""
+    moves = drill.moves
+    if len(moves) < 3 or len(moves) % 2 == 0:
+        return "sequence needs an odd-length line of at least 3 plies"
+    mover = board.turn
+    before = _balance_for(board, mover)
+    walk = board.copy()
+    last = len(moves) - 1
+    for i, uci in enumerate(moves):
+        mv = _parse(uci)
+        if mv is None or mv not in walk.legal_moves:
+            return f"sequence ply {i} ({uci!r}) is not legal"
+        if i % 2 == 1 and len(list(walk.legal_moves)) != 1:
+            return f"opponent ply {i} is not a forced reply"
+        walk.push(mv)
+        if i < last and (walk.is_checkmate() or walk.is_stalemate()):
+            return f"line resolves prematurely at ply {i}"
+    if walk.is_checkmate():
+        return None
+    gained = _balance_for(walk, mover) - before
+    if gained < MIN_GAIN_CP:
+        return f"sequence ends in neither mate nor a >= {MIN_GAIN_CP}cp gain (only {gained}cp)"
+    return None
+
+
 def verify(drill: Drill) -> str | None:
     """Return a problem description, or None when the drill is sound."""
     try:
@@ -158,6 +189,8 @@ def verify(drill: Drill) -> str | None:
         if alt is None or alt not in board.legal_moves:
             return f"alternative {uci!r} is not a legal move"
 
+    if drill.theme in _SEQUENCE_THEMES:
+        return _verify_sequence(drill, board)
     if drill.theme in _MATE_THEMES:
         verdict = _verify_mate(board, solution)
         if verdict is None:

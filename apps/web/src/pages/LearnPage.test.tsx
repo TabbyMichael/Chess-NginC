@@ -139,6 +139,48 @@ describe('LearnPage', () => {
     expect(screen.queryByText(/Solved!/)).not.toBeInTheDocument();
   });
 
+  it('steppers a multi-move puzzle to a solve over two plies', async () => {
+    const { user } = renderPage();
+    await screen.findByText('Checkmate');
+    vi.spyOn(api, 'trainingPuzzle').mockResolvedValue(
+      puzzle({ key: 'gen-sequence-1-0', theme: 'sequence', player_moves: 2 }),
+    );
+    await user.click(screen.getAllByRole('button', { name: 'Practise this' })[0] as HTMLElement);
+    await screen.findByText('It is mate in one. Find it.');
+
+    // Mid-run the first own-move resolves in progress: no banner, and the board
+    // is advanced to the server's post-reply position.
+    const submit = vi
+      .spyOn(api, 'submitTrainingAttempt')
+      .mockResolvedValueOnce(
+        attempt({ solved: false, complete: false, position_fen: START_FEN, played_san: ['e4'] }),
+      )
+      .mockResolvedValueOnce(
+        attempt({ solved: true, points_awarded: 7, complete: true, played_san: ['e4', 'e4'] }),
+      );
+
+    expect(await screen.findByText('Move 1 of 2')).toBeInTheDocument();
+    await user.click(cell('e2'));
+    await user.click(cell('e4'));
+    expect(submit).toHaveBeenLastCalledWith({
+      key: 'gen-sequence-1-0',
+      uci: '',
+      moves: ['e2e4'],
+    });
+    // Still no verdict banner mid-run; the counter stepped forward.
+    expect(screen.queryByText(/Solved!/)).not.toBeInTheDocument();
+    expect(await screen.findByText('Move 2 of 2')).toBeInTheDocument();
+
+    await user.click(cell('e2'));
+    await user.click(cell('e4'));
+    expect(submit).toHaveBeenLastCalledWith({
+      key: 'gen-sequence-1-0',
+      uci: '',
+      moves: ['e2e4', 'e2e4'],
+    });
+    expect(await screen.findByText('Solved! +7 points')).toBeInTheDocument();
+  });
+
   it('never awards points on a "Show me" reveal', async () => {
     const { user } = renderPage();
     await screen.findByText('Checkmate');

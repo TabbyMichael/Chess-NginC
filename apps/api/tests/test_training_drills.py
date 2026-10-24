@@ -21,8 +21,8 @@ def _by_theme(theme: str) -> list:
     return [d for d in DRILLS if d.theme == theme]
 
 
-def test_catalog_is_at_least_300_across_all_themes() -> None:
-    assert len(DRILLS) > 300
+def test_catalog_is_at_least_750_across_all_themes() -> None:
+    assert len(DRILLS) > 750
     assert {d.theme for d in DRILLS} == set(THEME_ORDER)
     for theme in THEME_ORDER:
         rows = _by_theme(theme)
@@ -79,6 +79,38 @@ def test_every_backrank_drill_defuses_a_real_mate() -> None:
         # ...and cannot any more after it.
         board.push(chess.Move.from_uci(drill.solution))
         assert not mate_in_one_exists(_flipped(board)), f"{drill.key} escape fails"
+
+
+def test_every_sequence_drill_forces_a_win() -> None:
+    """Multi-move puzzles: a genuinely long, unambiguous, winning forced line.
+
+    Replays each ``moves`` line from the start FEN and asserts, ply by ply, that
+    every own move is legal, every opponent reply is forced (exactly one legal
+    move — which is what makes the line deterministic and the win honest without
+    an engine), the position does not resolve before the last player move, and it
+    ends in checkmate or a decisive material gain.
+    """
+    for drill in _by_theme("sequence"):
+        moves = drill.moves
+        assert len(moves) >= 3 and len(moves) % 2 == 1, f"{drill.key}: bad line shape"
+        assert drill.solution == moves[0], f"{drill.key}: solution != first line ply"
+        board = chess.Board(drill.fen)
+        mover = board.turn
+        before = material_balance(board)
+        last = len(moves) - 1
+        for i, uci in enumerate(moves):
+            move = chess.Move.from_uci(uci)
+            assert move in board.legal_moves, f"{drill.key}: ply {i} {uci} illegal"
+            if i % 2 == 1:
+                assert len(list(board.legal_moves)) == 1, f"{drill.key}: reply {i} not forced"
+            board.push(move)
+            if i < last:
+                assert not (board.is_checkmate() or board.is_stalemate()), (
+                    f"{drill.key}: resolves early at ply {i}"
+                )
+        gained = material_balance(board)
+        gained = gained - before if mover == chess.WHITE else before - gained
+        assert board.is_checkmate() or gained >= 100, f"{drill.key}: no mate or gain"
 
 
 def _flipped(board: chess.Board) -> chess.Board:

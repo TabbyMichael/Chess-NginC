@@ -2035,6 +2035,13 @@ html[data-theme='dark'] .captured-piece {
   margin: 0;
   font-weight: 600;
 }
+.drill-progress {
+  margin: 0;
+  font-size: 0.85rem;
+  letter-spacing: 0.02em;
+  color: var(--muted, inherit);
+  font-variant-numeric: tabular-nums;
+}
 .drill-banner {
   margin: 0;
   padding: var(--space-2) var(--space-3);

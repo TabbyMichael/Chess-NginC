@@ -224,6 +224,8 @@ export interface PuzzleResponse {
   /** Set for mined puzzles, so the card can link back to the source review. */
   game_id?: number | null;
   ply?: number | null;
+  /** How many own-moves this puzzle needs; >1 marks a multi-move sequence. */
+  player_moves?: number;
 }
 
 export interface TrainingAttemptRequest {
@@ -231,6 +233,8 @@ export interface TrainingAttemptRequest {
   uci: string;
   /** "Show me": records a no-credit attempt and reveals the answer. */
   reveal?: boolean;
+  /** Cumulative own-moves played so far, for multi-move puzzles; empty for singles. */
+  moves?: string[];
 }
 
 /** The verdict and the reveal — the answer only ever leaves the server here. */
@@ -243,6 +247,12 @@ export interface TrainingAttemptResponse {
   continuation: string[];
   points_awarded: number;
   unlocked_achievements?: AchievementResponse[];
+  /** Multi-move stepper: false while the run is still in progress. */
+  complete?: boolean;
+  /** Board (FEN) after the scripted forced reply, for the next ply of a sequence. */
+  position_fen?: string;
+  /** SANs of the own-moves replayed so far in this sequence run. */
+  played_san?: string[];
 }
 
 /** One mined puzzle in the "from your own games" list (no answer). */

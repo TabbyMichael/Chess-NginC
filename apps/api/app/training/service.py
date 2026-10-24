@@ -246,6 +246,71 @@ def record_attempt(db: Session, user_id: int, key: str, uci: str) -> dict:
     return _reveal(puzzle, solved, points, unlocked)
 
 
+def record_sequence_attempt(db: Session, user_id: int, key: str, played: list[str]) -> dict:
+    """Grade a multi-move puzzle by exact-line replay, one attempt per resolved run.
+
+    The client replays the forced line ply by ply: it submits its own moves in
+    order (cumulative), and the server auto-plays the scripted opponent reply
+    after each. An in-progress run logs nothing and returns ``complete=False``
+    with the new position so the board advances; only a full correct line (one
+    solved attempt, points) or a wrong ply (one failed attempt, the answer
+    revealed) writes a row. The verdict stays server-side, as with single moves.
+    """
+    puzzle = _resolve(db, user_id, key)
+    moves = puzzle.moves
+    if not moves:
+        raise IllegalAttemptError(f"Puzzle {key} is not a multi-move sequence")
+    if not played:
+        raise IllegalAttemptError("No moves submitted")
+    player_plies = (len(moves) + 1) // 2
+    if len(played) > player_plies:
+        raise IllegalAttemptError("Too many moves for this puzzle")
+
+    board = chess.Board(puzzle.fen)
+    played_san: list[str] = []
+    for j, uci in enumerate(played):
+        try:
+            mv = chess.Move.from_uci(uci)
+        except ValueError as exc:
+            raise IllegalAttemptError(f"Unparsable move: {uci}") from exc
+        if mv not in board.legal_moves:
+            raise IllegalAttemptError(f"Illegal move for this position: {uci}")
+        if uci != moves[2 * j]:
+            # Legal but not the line's move: one failed attempt, reveal the answer.
+            points, unlocked = _record(db, user_id, puzzle, uci, solved=False)
+            payload = _reveal(puzzle, solved=False, points=points, unlocked=unlocked)
+            payload.update(
+                {"complete": True, "position_fen": board.fen(), "played_san": played_san}
+            )
+            return payload
+        played_san.append(board.san(mv))
+        board.push(mv)
+        if 2 * j + 1 < len(moves):  # scripted forced reply
+            board.push(chess.Move.from_uci(moves[2 * j + 1]))
+
+    if len(played) == player_plies:
+        # Whole line found: the final player ply delivered mate/gain.
+        points, unlocked = _record(db, user_id, puzzle, moves[-1], solved=True)
+        payload = _reveal(puzzle, solved=True, points=points, unlocked=unlocked)
+        payload.update({"complete": True, "position_fen": board.fen(), "played_san": played_san})
+        return payload
+
+    # Correct so far but unfinished: log nothing, advance the board, reveal no answer.
+    return {
+        "solved": False,
+        "complete": False,
+        "solution_san": "",
+        "solution_from": "",
+        "solution_to": "",
+        "why": "",
+        "continuation": [],
+        "points_awarded": 0,
+        "unlocked_achievements": [],
+        "position_fen": board.fen(),
+        "played_san": played_san,
+    }
+
+
 def reveal(db: Session, user_id: int, key: str) -> dict:
     """ "Show me": give the answer and log a no-credit attempt (no point, no solve)."""
     puzzle = _resolve(db, user_id, key)

@@ -49,6 +49,7 @@ _ATTEMPT_RESPONSES: dict[int | str, dict[str, object]] = {
 
 def _puzzle_to_response(puzzle: Drill) -> PuzzleResponse:
     """Answer-free puzzle serialization: solution/alternatives/line are not read."""
+    player_moves = (len(puzzle.moves) + 1) // 2 if puzzle.moves else 1
     return PuzzleResponse(
         key=puzzle.key,
         theme=puzzle.theme,
@@ -59,6 +60,7 @@ def _puzzle_to_response(puzzle: Drill) -> PuzzleResponse:
         source=puzzle.source,
         game_id=puzzle.game_id,
         ply=puzzle.ply,
+        player_moves=player_moves,
     )
 
 
@@ -73,6 +75,9 @@ def _attempt_to_response(result: dict) -> TrainingAttemptResponse:
         continuation=result["continuation"],
         points_awarded=result["points_awarded"],
         unlocked_achievements=[to_achievement_response(a) for a in unlocked],
+        complete=result.get("complete", True),
+        position_fen=result.get("position_fen", ""),
+        played_san=result.get("played_san", []),
     )
 
 
@@ -149,6 +154,11 @@ def submit_attempt(
     try:
         if payload.reveal:
             result = training_service.reveal(db, current_user.id, payload.key)
+        elif payload.moves:
+            # Multi-move stepper: replay the cumulative own-moves server-side.
+            result = training_service.record_sequence_attempt(
+                db, current_user.id, payload.key, payload.moves
+            )
         else:
             result = training_service.record_attempt(db, current_user.id, payload.key, payload.uci)
     except PuzzleNotFoundError as exc:

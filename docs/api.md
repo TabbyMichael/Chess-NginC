@@ -180,15 +180,18 @@ becomes true mid-game.
 
 ## Training (all 🔒, LEARN-001..005)
 
-The Learn section: a drill catalog (`app/training/drills.py`) of **8 themes × 3
-levels** — mate, hanging, fork, pin, skewer, discovered, back-rank and endgame.
+The Learn section: a drill catalog (`app/training/drills.py`) of **9 themes × 3
+levels** — mate, hanging, fork, pin, skewer, discovered, back-rank, endgame and
+`sequence` (multi-move puzzles solved by playing a whole forced line).
 It is `DRILLS = CURATED + generated`: 18 hand-written core puzzles (the prose and
 the `mate-1` opening every mate theme resolves to) plus several hundred
-parametrically built positions (`app/training/generate.py`), **351** in total —
+parametrically built positions (`app/training/generate.py`), **829** in total —
 and every one, curated or generated, is re-proved sound by python-chess in
-`verify.py` (`verify_all()` runs in CI). Alongside it, puzzles mined from the
-caller's own analysed games (`app/training/from_reviews.py`). Every
-attempt is appended to `training_attempts`, and the easy→hard ramp, the streak
+`verify.py` (`verify_all()` runs in CI). Sequence lines are authored offline and
+certified at generation time (each opponent reply is a single forced move), then
+re-played deterministically at grade time — no engine or search. Alongside it,
+puzzles mined from the caller's own analysed games (`app/training/from_reviews.py`).
+Every attempt is appended to `training_attempts`, and the easy→hard ramp, the streak
 and the per-theme progress are all recomputed from that log — no mutable counter
 to drift.
 
@@ -200,9 +203,9 @@ because the frontend never determines the outcome.
 | Method & Path | Description |
 |---------------|-------------|
 | `GET /training/summary` | Per-theme `{label, solved, attempts, level, pct}` plus `{puzzles_solved, streak, mine_available}` (LEARN-003) |
-| `GET /training/puzzle?theme=&source=` | One puzzle at that theme's current level (`theme` ∈ the 8 catalog themes), or the next unsolved mined one (`source=game`); **no answer in the payload**; `404` when nothing is left |
+| `GET /training/puzzle?theme=&source=` | One puzzle at that theme's current level (`theme` ∈ the 9 catalog themes), or the next unsolved mined one (`source=game`); **no answer in the payload**; carries `player_moves` (a count, `>1` only for `sequence`) but never the line; `404` when nothing is left |
 | `GET /training/mine` | The caller's "A move you missed" list — `{key, fen, prompt, game_id, ply}` for each mined puzzle (REV-005) |
-| `POST /training/attempts` | Body `{key, uci, reveal?}`. Verdict + reveal `{solved, solution_san, solution_from, solution_to, why, continuation, points_awarded, unlocked_achievements}` |
+| `POST /training/attempts` | Body `{key, uci, reveal?}` for a single-move drill, or `{key, moves:[...]}` (cumulative player plies) for a `sequence`. Verdict + reveal `{solved, solution_san, solution_from, solution_to, why, continuation, points_awarded, unlocked_achievements}`; sequences also return `{complete, position_fen, played_san}` — mid-run `complete:false` logs nothing and advances the board, and a single attempt row is written only when the run resolves |
 
 Errors: `401` everywhere; `404` unknown puzzle key (or a `mine:` key no longer in
 the caller's reviews); `422` an illegal or unparseable `uci`. The POST carries the

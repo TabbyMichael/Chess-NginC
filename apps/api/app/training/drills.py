@@ -29,6 +29,7 @@ THEME_NAMES = {
     "endgame": "Endgames",
     "skewer": "Skewers",
     "discovered": "Discovered Attacks",
+    "sequence": "Multi-Move Puzzles",
 }
 
 THEME_ORDER = (
@@ -40,6 +41,7 @@ THEME_ORDER = (
     "discovered",
     "backrank",
     "endgame",
+    "sequence",
 )
 
 
@@ -62,6 +64,9 @@ class Drill:
     alternatives: tuple[str, ...] = field(default_factory=tuple)  # other accepted ucis
     # Forced continuation, opponent replies included.
     line: tuple[str, ...] = field(default_factory=tuple)
+    # Full alternating line, player-first, set only for the 'sequence' theme; the
+    # player replays every own-ply (see verify._verify_sequence). Odd length.
+    moves: tuple[str, ...] = field(default_factory=tuple)
     prompt: str = ""
     why: str = ""
     source: str = "drill"  # 'drill' (curated) | 'game' (mined from the player's reviews)
