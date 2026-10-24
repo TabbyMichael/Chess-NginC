@@ -101,15 +101,17 @@ export default function ReviewThinking({ gameId, fens }: Props) {
 
   return (
     <div className="review-thinking">
-      <Chessboard
-        fen={currentFen}
-        status="active"
-        selected={null}
-        onSelect={() => {}}
-        onMove={() => {}}
-        disabled
-        lastMove={lastMove}
-      />
+      <div className="board-frame">
+        <Chessboard
+          fen={currentFen}
+          status="active"
+          selected={null}
+          onSelect={() => {}}
+          onMove={() => {}}
+          disabled
+          lastMove={lastMove}
+        />
+      </div>
       <p className="u-muted" role="status">
         Stockfish is replaying every move. Long games can take a minute.
       </p>

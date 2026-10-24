@@ -1,10 +1,15 @@
-"""The hand-authored drill catalog: 6 themes x 3 levels = 18 sound puzzles.
+"""The drill catalog: hand-written core puzzles plus a generated, verified bulk.
 
-Teaching needs a sentence of prose per idea, which a generator cannot supply —
-so the positions and the `why` lines are written by hand. That is only safe
-because `verify.py` re-proves every one of them with python-chess on every test
-run (and in ``scripts/check_drills.py``): an unsound or mislabelled drill fails
-the build rather than quietly mis-teaching a player.
+Teaching needs a sentence of prose per idea, which is why the ``CURATED``
+tuple — one crisp example per skill — is authored by hand. The bulk of the
+hundreds of positions on the Learn page is built by :mod:`app.training.generate`
+from geometric templates and then filtered through ``verify.verify()``, the same
+python-chess prover the curated drills pass through (re-run in
+``scripts/check_drills.py``). So ``DRILLS = CURATED + generated``: the hand-written
+set first (the ramp and the tests key off the curated ``mate-1`` opening every
+mate theme), then several hundred machine-verified additions. An unsound or
+mislabelled position — hand-written or generated — fails the build rather than
+quietly mis-teaching a player.
 
 Each theme is one skill card. `level` orders the drills inside a skill from
 easy to hard; the training ramp picks the level the player is ready for.
@@ -22,9 +27,20 @@ THEME_NAMES = {
     "pin": "Pins",
     "backrank": "Back-Rank Safety",
     "endgame": "Endgames",
+    "skewer": "Skewers",
+    "discovered": "Discovered Attacks",
 }
 
-THEME_ORDER = ("mate", "hanging", "fork", "pin", "backrank", "endgame")
+THEME_ORDER = (
+    "mate",
+    "hanging",
+    "fork",
+    "pin",
+    "skewer",
+    "discovered",
+    "backrank",
+    "endgame",
+)
 
 
 @dataclass(frozen=True)
@@ -66,7 +82,7 @@ def _mate(key: str, level: int, fen: str, solution: str, why: str) -> Drill:
     )
 
 
-DRILLS: tuple[Drill, ...] = (
+CURATED: tuple[Drill, ...] = (
     # --- Checkmate ----------------------------------------------------------
     _mate(
         "mate-1",
@@ -278,3 +294,10 @@ DRILLS: tuple[Drill, ...] = (
         "enemy king is too far to stop is already a queen on layaway.",
     ),
 )
+
+# Generated, per-(theme, level) capped catalog appended after the curated set.
+# Imported here at the bottom so ``generate`` can rely on ``Drill``/``THEME_NAMES``
+# above without a circular-import cycle at module load.
+from app.training.generate import generated_drills  # noqa: E402
+
+DRILLS: tuple[Drill, ...] = CURATED + generated_drills()

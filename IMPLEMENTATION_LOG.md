@@ -1008,4 +1008,71 @@ on the voice/animation quality; TD-019's engine-verified catalog regeneration if
 player reports a good move marked wrong; a generic tactics detector to fully close
 TAC-001/002 (the drill themes name the patterns but no over-the-board scan exists yet).
 
+---
+
+## Session 2026-10-24 (r) — Learn: 300+ verified drills, two new themes, board sizing
+
+**Goal.** Two follow-ups to the Learn section: grow the drill catalog well past **300**
+positions, and shrink the animated review loader (and the `/learn` drill board) to the
+same footprint as the in-play board. Chosen approach for the expansion: generate
+positions from parametric templates and keep only what the existing soundness prover
+accepts — "generate + auto-verify" — and add two new themes for variety.
+
+**Board sizing (`web`).** The play board is capped by `.board-frame`
+(`width: min(100%, calc(100dvh - 16rem)); max-width: 46rem; margin: 0 auto`) and its
+pieces scale with `cqw` off `.board-wrapper`, so the wrapper must be capped — not the
+`.board` — to keep piece sizes right. `ReviewThinking.tsx` now wraps `<Chessboard>` in
+`<div className="board-frame">`; `LearnPage.tsx`'s drill board is `drill-board
+board-frame`. `13` loader/Learn tests pass.
+
+**Generated catalog (`api/training`).** New `app/training/generate.py` builds each theme
+from geometric templates — back-rank/smothered **mate**, undefended-piece **hanging**,
+knight-fork-of-king-and-target **fork**, rook-pinned-piece **pin**, and two new themes:
+**skewer** (a rook slide checks the king, the king steps off the line, the rook takes the
+piece behind it) and **discovered** (a piece captures while vacating a file to uncover
+the rook's check). Every candidate is run through `verify.verify()` before it is kept,
+with motif guards in the generator on top (hanging square undefended, real `is_pinned`,
+check-then-capture for skewer/discovered). The catalog composes as
+`DRILLS = CURATED + generated_drills()` — curated **first**, so the ramp and
+`test_puzzle_payload_has_no_answer` still resolve a fresh mate theme to `mate-1`. Keys
+are deterministic (`gen-{theme}-{level}-{n}`, fixed square iteration + a per-(theme,
+level) cap of 16). Import + generation cost ~0.3s.
+
+**Theme wiring.** `skewer`/`discovered` added to `THEME_NAMES`/`THEME_ORDER`
+(`drills.py`) and `_MATERIAL_THEMES`/`VALID_THEMES` (`verify.py`), so they are proved by
+the durable-material-gain path. Frontend `lib/training.ts` gains their card order and
+teaching lines. `service.summary`/`next_puzzle` needed no change — they key off
+`THEME_ORDER`/`DRILLS`.
+
+**Catalog result: 351 verified drills, 8 themes, every theme covering levels 1-3.**
+`mate 39 · hanging 51 · fork 51 · pin 51 · skewer 39 · discovered 48 · backrank 33 ·
+endgame 39`. `verify_all(DRILLS) == []`.
+
+**Tests.** `test_training_drills.py` now asserts `len(DRILLS) > 300` and folds
+`skewer`/`discovered` into the material-gain test; `training.test.ts` locks the 8-theme
+order and the new teaching lines. Backend **382** pytest (count unchanged — assertions
+retuned, not added), frontend **236** vitest.
+
+**Gates (CI order).** `ruff check app tests`, `ruff format --check app tests`, `mypy app`
+(74 files), `pytest` — green; frontend `npm run lint`, `tsc --noEmit`, `test:run`,
+`vite build`, `prettier --check src` — green; `scripts/check_drills.py` reports "All 351
+drills are sound." No migration was needed (the catalog is code, not schema), so the
+alembic gate is untouched. After `docker compose up -d --build`, live `curl` as a freshly
+registered user: `GET /training/puzzle?theme=skewer` and `?theme=discovered` return
+`gen-skewer-1-0`/`gen-discovered-1-0` with **no answer keys**; `POST` the correct
+`mate-1` move still awards `7` (curated-first preserved); a generated `gen-skewer-1-0`
+solve graded `solved:true, points 7` and revealed the forced continuation `Kb4 Rxa5`;
+`GET /training/summary` lists all 8 themes with the new labels (Skewers, Discovered
+Attacks). Test rows deleted afterwards.
+
+**Docs.** `PROJECT_CHECKLIST.md` LEARN-001/006 refreshed; `docs/api.md` Training intro
+and puzzle row now say 8 themes / 351; `docs/architecture.md` `training` module row and
+**D12** reworded for the template-generated, verify-filtered catalog; **TD-019** notes
+generated positions pass the same pattern prover.
+
+**Remaining / next task.** Human browser pass to eyeball the resize and the new-theme
+cards; TD-019's engine-verified regeneration if a player reports a co-win marked wrong
+(the pattern prover accepts only the drill's own move, which now governs hundreds of
+generated positions).
+
 

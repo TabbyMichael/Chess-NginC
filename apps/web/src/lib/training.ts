@@ -8,7 +8,16 @@
 import type { TrainingThemeProgress } from './api-types';
 
 /** Curated skill order on the Learn grid; matches the backend THEME_ORDER. */
-const THEME_SEQUENCE = ['mate', 'hanging', 'fork', 'pin', 'backrank', 'endgame'] as const;
+const THEME_SEQUENCE = [
+  'mate',
+  'hanging',
+  'fork',
+  'pin',
+  'skewer',
+  'discovered',
+  'backrank',
+  'endgame',
+] as const;
 
 /** One teaching line per theme, shown under the card title. */
 const THEME_IDEAS: Record<string, string> = {
@@ -16,6 +25,8 @@ const THEME_IDEAS: Record<string, string> = {
   hanging: 'Take what is undefended — and leave yours guarded.',
   fork: 'One piece, two targets at once.',
   pin: 'A piece that dares not move.',
+  skewer: 'Check the king, then take what hides behind it.',
+  discovered: 'One move unmasks another piece waiting in the shadows.',
   backrank: 'Give your king a square to escape to.',
   endgame: 'Promote a pawn and march the king forward.',
   missed: 'The move you missed in one of your own games.',

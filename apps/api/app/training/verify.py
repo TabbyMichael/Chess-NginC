@@ -30,7 +30,7 @@ _PIECE_VALUES = {
 MIN_GAIN_CP = 100
 
 # Themes proved by a durable material gain along the line.
-_MATERIAL_THEMES = frozenset({"hanging", "fork", "pin", "endgame"})
+_MATERIAL_THEMES = frozenset({"hanging", "fork", "pin", "endgame", "skewer", "discovered"})
 # Themes proved by checkmate delivered by the solution itself.
 _MATE_THEMES = frozenset({"mate"})
 # Every theme the catalog is allowed to use.
