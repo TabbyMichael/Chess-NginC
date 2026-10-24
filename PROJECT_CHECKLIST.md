@@ -461,4 +461,28 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 | LEARN-006 | Animated review loader | P1 | [x] | `src/components/ReviewThinking.tsx` replays the finished game *backwards* ply-by-ply (`lib/chess.ts` `forwardFens`) while analysis runs, then loops; replaces the bare text card in `ReviewPage`'s loading branch; `clearInterval` on unmount; the loader and the `/learn` drill board are wrapped in `.board-frame` so they render at the same size as the in-play board |
 | LEARN-007 | Multi-move `sequence` puzzles | P1 | [x] | A 9th `sequence` theme of forced-line puzzles (`Drill.moves`, odd-length player-first). Lines are authored offline and certified at generation time — `_verify_sequence()` requires every opponent reply to be a single forced move and the line to end in mate (or net `>= MIN_GAIN_CP`); 65 drills (L1 27 / L2 29 / L3 9). Grading is a stateless **exact-line replay** in `service.record_sequence_attempt`: mid-run `complete:false` logs nothing and advances the board, one attempt row is written only when the run resolves. Frontend `LearnPage` runs a "Move X of Y" stepper; `POST /training/attempts` takes `moves:[...]`; no new migration |
 
+## Phase 11 — Engine-grounded Coach Assistant (the ⭐ on the review page)
+
+> A conversational coach reached from the ⭐ beside "Where to improve". It answers
+> from **engine + book facts only**: long-context over the stored review of this
+> game (positions, best way to proceed, bounded live-MultiPV what-ifs) and Postgres
+> full-text **RAG** across the player's own reviews plus the offline book (recurring
+> errors, opening theory). No pgvector/embeddings (D13). An OpenAI-compatible LLM is
+> optional and env-gated; it only ever rephrases cited facts, and a reply naming an
+> uncited move is discarded for the deterministic answer. Full tracker:
+> [`apps/api/app/ai/docs/checklist.md`](apps/api/app/ai/docs/checklist.md).
+> Gates: `ruff`/`mypy`/428 `pytest`/`alembic check` clean (backend, incl. `tests/ai`);
+> `eslint`/`tsc`/243 `vitest`/`prettier`/`vite build` clean (frontend, incl. the ⭐).
+
+| ID | Requirement | Pri | Status | Evidence / Location |
+|----|-------------|-----|--------|---------------------|
+| COACH-A1 | `app/ai` package (long-context + RAG + compose + provider + service) | P1 | [x] | `app/ai/…`, settings in `core/database.py`, `.env.example` coach block |
+| COACH-B1 | Long-context facts + packs + bounded what-if engine pass | P0 | [x] | `app/ai/longcontext/{context,whatif}.py`; `tests/ai/test_context_compose.py` |
+| COACH-C1 | Intent detection + deterministic composer + **cite-only grounding guard** | P0 | [x] | `app/ai/{compose,provider}.py`; invention discarded → deterministic (`tests/ai/test_assistant.py`) |
+| COACH-D1 | `coach_index` (stored tsvector + GIN) + FTS/pattern recall + backfill | P0 | [x] | `app/ai/rag/*`, migration `f6b1c8d2a9e4`, `scripts/index_reviews.py`; `tests/ai/test_rag.py` |
+| COACH-E1 | Service orchestration + best-effort review-index hook | P0 | [x] | `app/ai/service.py` + `reviews/service.py` `index_review_safe` |
+| COACH-F1 | `POST /games/{id}/assistant` + `GET …/patterns` (auth, same-origin, rate-limit, 404/409/422/429) | P0 | [x] | `app/api/v1/assistant.py`; HTTP tests in `tests/ai/test_assistant.py` |
+| COACH-G1 | ⭐ toggle (left of "Where to improve") + `CoachAssistant` panel, clickable move refs, patterns | P1 | [x] | `ReviewPage.tsx`, `CoachAssistant.tsx`, `api-client`/`api-types`; `*.test.tsx` |
+| COACH-I1 | CI: dedicated `pytest tests/ai`, coach migration round-trip, scripts linted | P0 | [x] | `.github/workflows/ci.yml` (fixed a latent `downgrade` TypeError in `a1c7e4f9b2d6`) |
+
 > Statuses must be updated in this file only after the corresponding acceptance criteria are met and checks pass.

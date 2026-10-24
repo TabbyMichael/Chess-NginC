@@ -5,6 +5,9 @@
 import type {
   AchievementListResponse,
   AchievementResponse,
+  AssistantAnswerResponse,
+  AssistantAskRequest,
+  CoachPatternsResponse,
   CreateGameRequest,
   EngineMoveRequest,
   ErrorResponse,
@@ -94,6 +97,12 @@ export const api = {
   createGameReview: (id: number, p: ReviewRequest = {}) =>
     post<ReviewResponse>(`/games/${id}/review`, p),
   getGameReview: (id: number) => get<ReviewResponse>(`/games/${id}/review`),
+
+  // Coach assistant (Phase 11): a grounded question over the reviewed game,
+  // plus cross-game pattern recall. Both are read-only from the DB's view.
+  askCoach: (id: number, p: AssistantAskRequest) =>
+    post<AssistantAnswerResponse>(`/games/${id}/assistant`, p),
+  coachPatterns: (id: number) => get<CoachPatternsResponse>(`/games/${id}/assistant/patterns`),
 
   // Online play (online-plan §6): lobby queue + participant-scoped game routes.
   joinQueue: () => post<QueueResponse>('/online/queue'),

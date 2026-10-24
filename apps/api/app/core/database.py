@@ -49,6 +49,17 @@ class Settings(BaseSettings):
     # empty = cloud provider disabled. Never log or return the key.
     stockfish_api_key: str = ""
     stockfish_api_base_url: str = "https://stockfishapi.com/v1"
+    # Coach assistant (Phase 11). The LLM is OPTIONAL and env-gated: with no
+    # `assistant_api_key` the assistant answers deterministically from engine +
+    # book facts (the offline test/CI default). The key is never committed,
+    # logged, or returned. Recall depth and the per-user ask budget live here.
+    assistant_api_key: str = ""
+    assistant_base_url: str = "https://api.openai.com/v1"
+    assistant_model: str = "gpt-4o-mini"
+    assistant_max_tokens: int = 400
+    assistant_rate_limit_per_minute: int = 20
+    coach_recall_top_k: int = 6
+    coach_patterns_min: int = 2
     log_level: str = "INFO"
 
     model_config = SettingsConfigDict(env_file=".env")

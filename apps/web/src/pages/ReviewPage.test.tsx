@@ -199,6 +199,34 @@ describe('ReviewPage content (REVIEW-003/004)', () => {
     expect(within(section).queryByText('e5')).not.toBeInTheDocument();
   });
 
+  it('opens the coach assistant from the star, without disturbing the board tour', async () => {
+    vi.spyOn(api, 'getGameReview').mockResolvedValue(review());
+    const ask = vi.spyOn(api, 'askCoach').mockResolvedValue({
+      answer: 'Your e5 slipped just under the best line.',
+      intent: 'explain',
+      mode: 'deterministic',
+      provider: 'stockfish+book',
+      references: [{ ply: 2, san: 'e5', color: 'b', note: 'a hair off best' }],
+      position_fen: AFTER_E4,
+    });
+    const { user } = renderReview();
+
+    // The panel is opt-in: the coach is absent until the star is pressed.
+    expect(screen.queryByRole('region', { name: 'coach assistant' })).not.toBeInTheDocument();
+
+    await user.click(await screen.findByRole('button', { name: 'Coach assistant' }));
+    await screen.findByRole('region', { name: 'coach assistant' });
+
+    await user.type(screen.getByLabelText('Ask the coach about this game'), 'why?');
+    await user.click(screen.getByRole('button', { name: 'Send question' }));
+
+    expect(
+      await screen.findByText('Your e5 slipped just under the best line.'),
+    ).toBeInTheDocument();
+    // The board cursor (ply 1 at the tour start) is what the coach is told to focus on.
+    expect(ask).toHaveBeenCalledWith(7, { question: 'why?', focus_ply: 1 });
+  });
+
   it('re-analyses on demand', async () => {
     vi.spyOn(api, 'getGameReview').mockResolvedValue(review());
     const create = vi.spyOn(api, 'createGameReview').mockResolvedValue(review());

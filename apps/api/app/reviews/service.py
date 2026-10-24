@@ -21,6 +21,7 @@ import chess
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.ai.rag.index import index_review_safe
 from app.engine.classifier import (
     MoveContext,
     MoveQuality,
@@ -405,4 +406,9 @@ def generate_or_get(db: Session, game_id: int, user_id: int, *, force: bool = Fa
     db.add(review)
     db.commit()
     db.refresh(review)
+    # Project the finished analysis into the coach index so cross-game recall
+    # ("what do I keep doing wrong") sees it. Best-effort: an index failure can
+    # never fail the review the player asked for (Phase 11).
+    if review.status == "completed":
+        index_review_safe(db, review)
     return review
