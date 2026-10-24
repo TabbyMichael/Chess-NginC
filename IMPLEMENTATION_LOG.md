@@ -761,3 +761,251 @@ why the local binary stays the primary path.
 review `provider` field already surfaced). Conftest disarms both local and hosted
 Stockfish so no test ever touches a real engine or the network.
 
+
+## Session 2026-10-24 (p) — Review tour: opening names, win expectancy, calm voice
+
+**Request.** "When analysis is done the board goes back to the start of the game
+and I am able to move through it with front and back icons, as you explain the
+moves — which opening is that, probabilities of winning with that opening. Retain
+everything we have in the analysis page. Also implement a voice when explaining
+the moves: calm, authoritative and free."
+
+**Three questions asked before designing** (each answer changed the architecture):
+odds source → **engine expectancy only**, not third-party result statistics;
+trigger → **speak on each step**, no auto-play tour; board → **step through the
+recorded plies only**, so it stays read-only and no new move path appears here.
+
+**Facts verified first, because they chose the design.**
+- `chess.opening` **does not exist** in the installed python-chess 1.11.2 (its RECORD
+  ships engine/gaviota/pgn/polyglot/svg/syzygy/variant only). Offline names must be
+  vendored, not imported.
+- `lichess-org/chess-openings` is **CC0 / public domain** — `a.tsv`..`e.tsv`,
+  columns `eco name pgn`, no NAGs/comments in the sampled rows. It keys each line's
+  **final** position (TD-018), which is why the carry-forward rule exists.
+- The Lichess opening explorer hosts were **unreachable from this machine** (DNS
+  failure, `code=000`), so live "win rate with this opening" data would have been
+  unverifiable locally and a CI coin-flip. Expectancy computed from the eval the
+  review already stores needs no network at all.
+- `chess.Board.epd()` ignores move counters and the en-passant field, which makes it
+  a stable theory-position key (Ruy Lopez verified: `… b KQkq -`).
+- The Dockerfile runs `pip install .` and `[tool.setuptools.packages.find]`
+  includes only `app*`, so a `.json`/`.tsv` asset would have worked in the editable
+  venv and silently vanished in the image. The book therefore ships as a
+  **generated Python module holding one TSV string**.
+
+**Shipped this session — backend.**
+- **Offline book (`app/openings/`).** `scripts/gen_opening_book.py` fetches the five
+  TSVs, normalises (move numbers, game results, `!?` annotations dropped; `0-0-0`/
+  `0-0` → `O-O-O`/`O-O`), replays each line through `chess.Board.push_san()` and
+  writes `book_data.py` — **3,865 positions**, 424 KB, deterministic (identical md5
+  across reruns, 0 lines skipped). It aborts loudly on a network failure and on a
+  suspiciously short result, because the generated file is what ships. `book.py` is
+  pure lookup: `@functools.cache` over the string, duplicate EPDs keep the most
+  specific name (most `:` segments), `opening_after(pre_fen, uci)` never raises.
+- **Win expectancy (`app/engine/win_probability.py`, ANL-004).** Logistic on the Elo
+  equivalent of the eval — `ELO_PER_CENTIPOWN = 2.0` (one pawn ≈ 200 Elo ⇒ 76%) —
+  computed on the magnitude then mirrored, so `win_pct(-cp) == 100 - win_pct(cp)`
+  exactly; clamped 1..99; a mate distance decides instead (99/1 within five moves,
+  95/5 beyond). Pure function: `app/engine/` stays HTTP- and DB-free.
+- **Read-time annotation (`app/reviews/annotate.py`).** Adds `opening_eco`,
+  `opening_name`, `in_book`, `win_pct` per ply, flipping the mover-POV eval to White's
+  perspective, and carries the deepest match forward so a game that leaves theory
+  still names the opening that got there. Returns copies — the stored payload is
+  never mutated. Wired in `to_review_response` only, so the cached `GET` and the
+  fresh `POST` share one path. Four optional fields on `ReviewMoveResponse`, so
+  **no Alembic revision and no forced re-analysis**: reviews written before this
+  session light up on the next read.
+
+**Shipped this session — frontend.**
+- **The tour.** `ReviewPage.tsx` lands on ply 1 (one `initialPly` helper replacing
+  both "jump to last ply" sites; ply 1's `pre_fen` *is* the start position, so no
+  synthetic ply 0 was needed and the graph and move list keep working). First/Prev/
+  Next/Last strip with a `Move n of N` counter, disabled at both bounds, plus one
+  `window` `keydown` listener (`ArrowLeft`/`ArrowRight`/`Home`/`End`, skipped when a
+  modifier is held or the target is a field/button, removed on unmount). The board
+  stays `disabled` — navigation only ever moves the cursor.
+- **Opening and odds card.** ECO · name, an `In book` / `Out of book` badge, the
+  hero-side expectancy bar (`winPctFor` flips White's number for a Black player),
+  and this game's family average (`openingAverage` over plies sharing the text
+  before the first `:`). Every existing card — board line, eval graph, report card,
+  where-to-improve, move list — is untouched.
+- **Voice (free, offline, OS-supplied).** `lib/voice.ts`: feature-detected
+  `speechSynthesis`, rate/pitch 0.92 for a calm read, `cancel()` before every
+  `speak()` so fast stepping replaces instead of stacking, sentence-aware chunking
+  at ≤180 chars (Chrome drops an utterance around 15 s; a naive punctuation split
+  would tear "1.5 pawns"), voice chosen from an ordered hint list then en-GB then
+  any `en-*` then the platform default. `lib/narration.ts` puts the payload into
+  English: `Nf3` → "knight to f3", `exd5` → "the e-pawn takes d5", `O-O` → "castles
+  kingside", `Qxh7#` → "queen takes h7, checkmate", `12 cp` → "12 points", dashes →
+  commas; no opening name means the clause is dropped, not read as "unknown".
+  `VoiceToggle.tsx` on a new `voice` preference (default on), hidden entirely where
+  no speech engine exists; a `useEffect` speaks each step but a ref keeps the
+  automatic first render silent, because browsers drop gesture-less speech.
+- **Two deliberate deviations from the approved plan**, both because the plan's
+  approach was measurably worse: Chrome's `voiceschanged` listener is replaced by
+  per-call voice resolution (the listener can only ever arrive one step late, and
+  every step re-asks anyway); `narratePly(move)` speaks from **the mover's** side
+  rather than taking a `heroColor`, because naming the player is what makes a
+  spoken board position unambiguous.
+
+**Defects found and fixed while verifying.**
+- An ad-hoc verification probe read the generated TSV with the *source* column order
+  (`eco name pgn`) instead of the *generated* one (`epd eco name`), so a correct book
+  looked like a missing entry. The book was right and the probe was wrong — recorded
+  here because the same confusion would waste the next reader's time.
+
+**Live verification.** Against the rebuilt image, with **no bind mounts** (so the
+test is of packaging, not of the host tree): `book_size()` → 3865 inside the
+container, proving the module ships under `pip install .` (D10). `GET
+/api/v1/games/34/review` on a **stored** row whose payload provably lacked the new
+keys (`best_uci…uci`, 12 fields) returned `200` with all four derived fields and no
+engine pass: `B00 → C20 → C40 → C44 → C60 Ruy Lopez → C70 Morphy Defense`, with
+`in_book: false` from `4.Ba4` onward while still naming the Ruy Lopez. Coverage on
+the two stored reviews: 16/16 and 46/46 plies named and given odds (TD-018).
+
+**Tests & gates.** Backend **291 → 344** pytest: `test_openings.py` and
+`test_win_probability.py` = 45 collected (names asserted against the generated file,
+not from memory; a row-count floor so a truncated generation cannot pass silently;
+monotonic/mirror/mate-clamp properties) and 8 new `TestReviewAnnotation` cases in
+`test_reviews.py` (fields filled, carry-forward after the book ends, payload dicts
+not mutated, an old payload still serialising). Frontend **143 → 207** vitest:
+`voice.test.ts` 16, `narration.test.ts` 28, `review.test.ts` 18, and
+`ReviewPage.test.tsx` 8 → 19 with all eight originals passing **unchanged** — that
+is the "retain everything" check. Gates in CI order: `ruff check` + `ruff format
+--check` (93 files), `mypy app` (66 files), `alembic current` unchanged at
+`d7f3b0c9e512` + `alembic check` → "No new upgrade operations detected" (no
+migration was added), eslint, `tsc --noEmit`, vitest, `vite build` (391.56 kB JS /
+122.23 kB gzip, 31.49 kB CSS), plus `prettier --check src`.
+
+**Decisions & tracking.** Architecture **D10** (offline CC0 book shipped as a
+generated module, resolved at read time) and **D11** (engine expectancy, never a
+population result rate); `openings` added to the module table with its own "must
+NOT" column. `PROJECT_CHECKLIST.md`: **ANL-004 ticked**, **COA-004** and **CLS-001**
+re-scoped to what actually exists, new **REVIEW-007/008/009** ticked. `docs/api.md`
+gains the "derived on read, not stored" section (formula, provenance, POV rule).
+
+**Remaining / next task.** COA-004 still owes the deviation-from-theory and
+plan-per-opening halves (the book names positions only); CLS-001 still owes
+grading on win%-drop now that the model exists (TD-016); TD-018 covers the
+final-position indexing. The voice layer is only provable as a guarded no-op under
+jsdom — vitest asserts the calls and the chunking, never the sound, so the calm
+read itself needs a human ear in a real browser. Next: that browser pass on
+`/games/:id/review` (narration quality, voice selection, the strip on a touch
+device), or COA-004's deviation detection — compare the played ply against the
+book's alternatives at that EPD — as the following slice.
+
+## Session 2026-10-24 (q) — Learn: themed drills, your own missed moves, animated review loader
+
+**Request.** Add a `/learn` section — themed skill cards, an interactive drill
+board, puzzles taken from the player's own analysed games, per-skill progress with
+an easy→hard ramp, points and achievement ladders — and make the review loader a
+live board that replays the game **backwards** while Stockfish thinks, instead of a
+bare text card. Closes **REV-005**, advances **TAC-001/002**, opens the **LEARN-**
+stage.
+
+**Facts verified first, because they chose the design.**
+- python-chess can prove a *single-move* drill sound by pattern (FEN valid, solution
+  legal, theme goal met through the forced line, `mate_in_one_exists` before/after a
+  back-rank escape) **without any search** — which is exactly why drills are
+  hand-authored and machine-re-proved (`verify.py`) rather than engine-generated, and
+  why multi-move puzzles were left out of scope (TD-019).
+- `GET /games/{id}` returns `moves: {uci, san, move_number}[]` and **no per-ply FEN**,
+  so the backwards loader replays them forward from the opening with `forwardFens`
+  (chess.js) — the same FEN-forward walk the server and `lib/game-events.ts` already
+  do — then steps the list in reverse.
+- A `NULL` `slot_key` never dedupes under Postgres, so gameless awards need a
+  **partial** unique index (`… WHERE slot_key IS NOT NULL`) while the existing
+  `uq_point_award_slot` keeps guarding game awards.
+
+**Shipped this session — backend (`app/training/`).**
+- `drills.py`: 18 frozen-dataclass drills, 6 themes × 3 levels. `verify.py` returns a
+  problem string per drill; `verify_all()` is called both by a test and by
+  `scripts/check_drills.py`, so an unsound drill fails CI.
+- `from_reviews.py`: `mine_puzzles` reads the caller's `completed` reviews, keeps hero
+  mistake/blunder plies with `centipawn_loss ≥ MINE_MIN_LOSS_CP (120)` and a legal
+  `best_uci`, keys them `mine:{game}:{ply}`, dedupes on `(fen, best_uci)`. No content
+  is invented — every puzzle is a position the player actually faced.
+- `service.py`: `next_level` (+1 on three correct, −1 on two consecutive wrong),
+  `summary`, `next_puzzle` (**never** serialises `solution`/`alternatives`/`line`),
+  `record_attempt` (illegal uci → `422`; solved on first solve awards `drill`=2 and,
+  for a non-`missed` theme's first clear, `theme_clear`=5) and `reveal` (no credit).
+- Migration `e2a9c4f1b830` (revises `d7f3b0c9e512`): `training_attempts` table, plus
+  `point_awards.game_id` → nullable and `slot_key` + partial unique index; the
+  `award_points` insert body was extracted into `_record` with a new `award_ledger`
+  wrapper (all 8 existing call sites untouched).
+- Achievements: `_training_stats` (`puzzles_solved`, `drill_streak`) and a `training`
+  group with the **Puzzle Solver** and **Sharp Streak** ladders.
+- API `app/api/v1/training.py` (registered in `main.py`): `GET /training/summary`,
+  `GET /training/puzzle`, `GET /training/mine`, `POST /training/attempts` (`_SameOrigin`).
+
+**Shipped this session — frontend.**
+- `LearnPage.tsx` at `/learn` (route + "Learn" `NavLink`): skill-card grid → drill
+  panel reusing `Chessboard status="active"` (so legal-target dots work) → "From your
+  own games" strip linking each mined puzzle back to its review; verdict, `why` and
+  continuation come entirely from the server, achievements ride the response.
+- `ReviewThinking.tsx`: a disabled board that steps `positions` in reverse every
+  `REVERSE_STEP_MS = 450`, loops at the opening, falls back to a static start board on
+  an empty/failed fetch, and `clearInterval`s on unmount; `ReviewPage`'s loading branch
+  now renders it inside the card.
+- Pure helpers in `lib/training.ts` (`levelChip`, `progressPct`, `themeOrder`,
+  `themeIdea`, `uciFromTo`), `forwardFens`/`isCheck` in `lib/chess.ts`, four methods on
+  `api-client.ts`, mirrored types, `training` group label/icon, and the learn +
+  review-thinking styles.
+
+**Defects found and fixed while verifying.**
+- `alembic check` on a fresh scratch DB **failed**: the migration had created
+  `ix_training_attempts_game_id`, which the model never declares (only `user_id` is
+  indexed). Removed that index from the migration; the check is now clean — caught by
+  the CI-order gate, not by eye.
+- The ramp test asserted level 2 after solving mate-1/2/3 but got 3: `_level_from`
+  reads the last attempt's stored level, so climbing three different drills leaves the
+  base at 3. Fixed the test to re-solve mate-1 (level 1) three times.
+- `Chessboard` selection is parent-controlled; `LearnPage` first passed a fixed
+  `selected={null}`, so a click never fired. Added local `selected` state +
+  `onSelect`, reset when a puzzle opens.
+- Two `setState`-in-effect lint errors (`ReviewThinking`, `LearnPage`) fixed with the
+  render-time cursor guard and by keeping state writes inside promise callbacks.
+- `styles.css` referenced an undefined `var(--border)` → the token is `var(--rule)`;
+  a `forwardFens` test asserted a full FEN but chess.js omits the en-passant field
+  when none is legal, so it now asserts placement + side-to-move.
+
+**Live verification.** After `docker compose up -d --build` (the api container ran
+`alembic upgrade head` and the docker DB moved `d7f3b0c9e512 → e2a9c4f1b830`),
+against a seeded user + session over `curl` (a cookie-less non-browser client passes
+the same-origin check): `GET /training/puzzle?theme=mate` returned the mate-1 FEN with
+**no `solution`/`alternatives`/`line`** keys; the wrong-but-legal `a1a7` gave
+`solved:false, points_awarded:0` and still revealed `Ra8#`; the correct `a1a8` gave
+`solved:true, points_awarded:7` (2 drill + 5 first-theme-clear) riding four unlocks
+including the two `training` ones (`First Solve`, `Warming Up`); `GET /training/summary`
+showed `mate {solved 1, attempts 2, pct 0.3333}`, `puzzles_solved 1`, `streak 1`;
+`GET /training/mine` was `[]`; an unauthenticated puzzle request was `401`. Seed rows
+deleted afterwards.
+
+**Tests & gates.** Backend **344 → 382** pytest (`test_training_drills.py` incl.
+`verify_all()` soundness across all 6 themes, `test_training_api.py` for the
+answer-free payload / verdict / ramp / ledger / unlocks, `test_training_mine.py`, and
+four gameless ledger rows in `test_points.py`; four paths in `test_openapi.py`).
+Frontend **207 → 236** vitest (20 files): `ReviewThinking.test.tsx` (fake timers,
+`getTimerCount()` proving the interval is cleared), `training.test.ts`,
+`LearnPage.test.tsx`, `forwardFens` cases, and a `ReviewPage` loading-branch test; the
+19 original `ReviewPage` tests still pass unchanged. Gates in CI order: `ruff check
+app tests scripts`, `ruff format --check app tests`, `mypy app` (73 files),
+`alembic upgrade head` + `alembic check` on a fresh scratch DB ("No new upgrade
+operations detected"), `pytest`, `npm run lint`, `tsc --noEmit`, `test:run`,
+`vite build`, `prettier --check src` — all green.
+
+**Decisions & tracking.** Architecture **D12** (drills hand-authored and re-proved by
+python-chess at test time; the server is the only place a solution is known) and a
+`training` module row; new debt **TD-019** (pattern soundness cannot detect a quieter
+alternative move). `PROJECT_CHECKLIST.md`: **REV-005 ticked**, **TAC-001/002** marked
+partial, a new **Stage 6 — Learning** with **LEARN-001..006** ticked, and the Phase 10
+gate counts refreshed. `docs/api.md` gains the Training section (four routes, the
+answer-free rule, points/reveal semantics).
+
+**Remaining / next task.** A human browser pass on `/learn` (the drill board feel and
+the backwards review loader on a real screen — jsdom asserts behaviour, not pixels) and
+on the voice/animation quality; TD-019's engine-verified catalog regeneration if a
+player reports a good move marked wrong; a generic tactics detector to fully close
+TAC-001/002 (the drill themes name the patterns but no over-the-board scan exists yet).
+
+

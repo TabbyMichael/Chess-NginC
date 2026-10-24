@@ -24,6 +24,7 @@ from app.models.game_move import GameMove as GameMoveRow
 from app.models.game_review import GameReview
 from app.models.point_award import PointAward
 from app.models.user import User
+from app.training.models import TrainingAttempt
 
 # Point-award reasons that describe a personal result (see games.service).
 WIN = "win"
@@ -223,6 +224,27 @@ def _review_stats(db: Session, user_id: int) -> dict[str, int]:
     }
 
 
+def _training_stats(db: Session, user_id: int) -> dict[str, int]:
+    """Drill metrics: puzzles cleared and the current solve streak.
+
+    Derived straight from the append-only attempt log (the training service
+    reaches for the same rule); computed here rather than imported to keep the
+    achievements layer free of a cycle back through the service.
+    """
+    rows = db.execute(
+        select(TrainingAttempt.solved, TrainingAttempt.puzzle_key)
+        .where(TrainingAttempt.user_id == user_id)
+        .order_by(TrainingAttempt.created_at, TrainingAttempt.id)
+    ).all()
+    solved = {key for is_solved, key in rows if is_solved}
+    streak = 0
+    for is_solved, _key in reversed(rows):
+        if not is_solved:
+            break
+        streak += 1
+    return {"puzzles_solved": len(solved), "drill_streak": streak}
+
+
 def compute_stats(db: Session, user_id: int) -> dict[str, int]:
     """Every metric the catalog references, for one player."""
     user = db.get(User, user_id)
@@ -236,4 +258,5 @@ def compute_stats(db: Session, user_id: int) -> dict[str, int]:
         **_habit(db, user_id),
         "engine_moves": _engine_moves(db, game_ids),
         **_review_stats(db, user_id),
+        **_training_stats(db, user_id),
     }

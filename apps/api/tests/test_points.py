@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.engine.opponent import OpponentMove
 from app.games.domain import Color
+from app.games.service import award_ledger
 from app.models.game import Game as GameRow
 from app.models.point_award import PointAward
 
@@ -147,3 +148,72 @@ def test_engine_checkmate_loss_bonus(
     assert resp.json()["status"] == "checkmate"
     # Engine moves earn no move point; the user gets only the loss bonus.
     assert _points(client) == 3
+
+
+# --- Gameless ledger awards (drill/theme slots) ---------------------------
+
+
+def test_gameless_award_writes_slot_key_row(
+    authed_client: tuple[TestClient, dict], db: Session
+) -> None:
+    """A drill award carries no game, is stored with its slot_key, and bumps the total."""
+    client, body = authed_client
+    user_id = int(body["id"])
+    granted = award_ledger(db, user_id, "drill", "drill:mate-1")
+    assert granted == 2
+    assert _points(client) == 2
+    rows = (
+        db.execute(
+            select(PointAward).where(PointAward.user_id == user_id, PointAward.reason == "drill")
+        )
+        .scalars()
+        .all()
+    )
+    assert [(r.game_id, r.slot_key, r.delta) for r in rows] == [(None, "drill:mate-1", 2)]
+
+
+def test_gameless_award_dedupes_on_slot_key(
+    authed_client: tuple[TestClient, dict], db: Session
+) -> None:
+    """The partial unique index blocks a second award for the same (user, reason, slot)."""
+    client, body = authed_client
+    user_id = int(body["id"])
+    assert award_ledger(db, user_id, "drill", "drill:mate-1") == 2
+    # Re-solving the same drill pays nothing and writes no extra row.
+    assert award_ledger(db, user_id, "drill", "drill:mate-1") == 0
+    assert _points(client) == 2
+    rows = (
+        db.execute(
+            select(PointAward).where(PointAward.user_id == user_id, PointAward.reason == "drill")
+        )
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 1
+
+
+def test_gameless_slots_are_independent(
+    authed_client: tuple[TestClient, dict], db: Session
+) -> None:
+    """A different reason or slot_key is its own award — dedupe is per (user, reason, slot)."""
+    client, body = authed_client
+    user_id = int(body["id"])
+    assert award_ledger(db, user_id, "drill", "drill:mate-1") == 2
+    assert award_ledger(db, user_id, "theme_clear", "theme:mate") == 5
+    assert _points(client) == 7
+
+
+def test_game_slot_still_dedupes_alongside_slot_key(
+    authed_client: tuple[TestClient, dict], db: Session
+) -> None:
+    """The existing (game_id, reason, move_number) dedupe is untouched by the new column."""
+    client, _ = authed_client
+    game = _create(authed_client)
+    resp = client.post(
+        f"/api/v1/games/{game['id']}/moves",
+        json={"uci": "e2e4", "expected_version": game["version"]},
+    )
+    assert resp.status_code == 200, resp.text
+    awards = db.execute(select(PointAward).where(PointAward.reason == "move")).scalars().all()
+    # Game move rows keep a NULL slot_key and are keyed on the game/move slot.
+    assert [(a.game_id, a.slot_key, a.move_number) for a in awards] == [(game["id"], None, 1)]

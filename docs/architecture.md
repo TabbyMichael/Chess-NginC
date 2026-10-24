@@ -36,8 +36,10 @@ FastAPI application (api)
 | `reviews` (`app/reviews`) | Post-game pass: replay stored plies → MultiPV analysis → per-move grade + coaching sentence → stored JSON payload | Search; re-analysing on a read |
 | `classification` | Move labels from structured analysis only (`app/engine/classifier.py`) | Guessing without engine proof fields |
 | `coaching` | Grounded explanations citing stored fields (`app/reviews/explainer.py`) | Inventing evals/variations |
+| `openings` (`app/openings`) | Offline theory lookup: position → ECO + name (`app/openings/book.py` over the committed `book_data.py`) | Network fetches; claiming a name for a position the book does not hold |
 | `achievements` (`app/achievements`) | Code-defined catalog, stat aggregation from stored rows, per-player unlock records | Any client-supplied counting |
 | `tactics` | Pattern detectors over python-chess positions | Engine search or LLM judgement |
+| `training` (`app/training`) | Themed drill catalog + soundness proof (`drills.py`/`verify.py`), puzzles mined from stored reviews (`from_reviews.py`), append-only attempt log driving the ramp/progress/points (`service.py`) | Deciding the outcome in the browser; shipping a puzzle's answer in its payload |
 | `api` | HTTP schemas, status codes, request handling | Core chess algorithms |
 | `web` | User interactions and visual state | Trusted game outcomes |
 
@@ -56,6 +58,13 @@ FastAPI application (api)
 - A **review** is computed once per (game, player) and served from storage;
   reads never touch the engine, and the play path keeps the tight resource
   bounds while review uses the wider `REVIEW_MAX_*` envelope.
+- Opening names and win expectancy are **derived on read** (`app/reviews/annotate.py`)
+  from data the payload already holds. That is presentation, not re-analysis: the
+  stored JSON is never rewritten, so adding a derived field needs no migration and
+  no engine pass, and the cached `GET` and the fresh `POST` cannot drift.
+- The spoken review narration (`lib/voice.ts`, `lib/narration.ts`) is a display
+  layer over the same server fields — it never computes a chess fact, and it is
+  inert where no speech engine exists.
 - Use **dependency injection** to provide engines and repositories to services.
 - Versioned API under `/api/v1`; all contracts explicit, validated, documented.
 
@@ -92,5 +101,8 @@ compose.yaml    local Docker Compose
 | D7 | Computer games are answered by Stockfish through `app/engine/opponent.py`, not the custom minimax | Accepted | Difficulty maps client depth (1..6) onto bounded Stockfish depth. `app/engine/factory.py` is the single decision seam (local binary → `StockfishProvider`, else hosted `CloudStockfishProvider` when `STOCKFISH_API_KEY` is set) shared by play and review. An unreachable engine is `503`, never a silent fallback to a weaker opponent |
 | D8 | Achievement catalog in code, unlocks in one small table | Accepted | 200+ entries need no per-entry rows or migrations; unlocks ride mutation responses and are acknowledged once (`seen_at`) |
 | D9 | Game review runs synchronously and stores its payload | Accepted (debt) | Simple and cached per (game, player), but it holds a worker for up to `REVIEW_MAX_TIME_MS`; job queue + eval cache remain Phase 9 items (ANL-005/008) |
+| D10 | Opening theory is an offline, committed extract of `lichess-org/chess-openings` (CC0), shipped as a generated Python module and resolved at read time | Accepted | Server-side keeps one source of truth instead of a book in the browser bundle; a module (not a data file) survives `pip install .`, which only packages `app*`. `scripts/gen_opening_book.py` is the only thing that ever touches the network, so runtime and CI stay offline |
+| D11 | `win_pct` is an **engine win expectancy** from the evaluation, never a population result rate | Accepted | Logistic on the eval's Elo equivalent (1 pawn ≈ 200 Elo ⇒ 76%), mate distance overriding; no third-party stats, so no dependency on an external host being reachable (ANL-004) |
+| D12 | Training drills are hand-authored and re-proved by python-chess at test time; the server is the only place a solution is known | Accepted | Teaching needs a `why` sentence per theme, which search cannot invent — but every position is re-verified deterministically (`verify.py`, `verify_all()` in CI), so an unsound drill fails the build rather than teaching nonsense. `GET /training/puzzle` is deliberately answer-free and the verdict is computed server-side, honouring the rule that the frontend never determines outcomes; multi-move puzzles are out of scope because a single move is all python-chess can check without a search (TD-019 records the quieter-alternative limit) |
 
 See `docs/decisions/` for full decision records as they arise.

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   allSquares,
   capturedPieces,
+  forwardFens,
   isLegalPromotion,
   isLightSquare,
   legalTargets,
@@ -14,6 +15,33 @@ import {
 const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 // After 1. e4 d5 2. exd5 — White has captured one black pawn.
 const AFTER_CAPTURE = 'rnbqkbnr/ppp1pppp/3P4/8/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 3';
+
+describe('forwardFens', () => {
+  it('replays a legal sequence to one FEN per ply', () => {
+    const fens = forwardFens([{ uci: 'e2e4' }, { uci: 'e7e5' }]);
+    expect(fens).toHaveLength(2);
+    // The first position is after White's e4: pawn on e4, Black to move.
+    const fields = fens[0]?.split(' ') ?? [];
+    expect(fields[0]).toBe('rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR');
+    expect(fields[1]).toBe('b');
+    // Two plies in, it is White to move again.
+    expect(fens[1]?.split(' ')[1]).toBe('w');
+  });
+
+  it('returns [] rather than throwing on an illegal step', () => {
+    // e2e5 is not a legal pawn move, so the walk yields nothing.
+    expect(forwardFens([{ uci: 'e2e5' }])).toEqual([]);
+  });
+
+  it('stops at the first illegal step', () => {
+    // The good ply is dropped too: a corrupt list is all-or-nothing.
+    expect(forwardFens([{ uci: 'e2e4' }, { uci: 'a1a8' }])).toEqual([]);
+  });
+
+  it('returns [] for an empty move list', () => {
+    expect(forwardFens([])).toEqual([]);
+  });
+});
 
 describe('parseFenPlacement', () => {
   it('places all 32 starting pieces', () => {

@@ -13,12 +13,17 @@ import type {
   GoogleLoginRequest,
   LoginRequest,
   MessageResponse,
+  MinePuzzleResponse,
   MoveRequest,
+  PuzzleResponse,
   QueueResponse,
   RegisterRequest,
   ResetPasswordRequest,
   ReviewRequest,
   ReviewResponse,
+  TrainingAttemptRequest,
+  TrainingAttemptResponse,
+  TrainingSummaryResponse,
   UserResponse,
   VersionRequest,
 } from './api-types';
@@ -106,4 +111,17 @@ export const api = {
   newAchievements: () => get<AchievementResponse[]>('/me/achievements/new'),
   markAchievementsSeen: (keys: string[]) =>
     post<MessageResponse>('/me/achievements/seen', { keys }),
+
+  // Training / Learn (LEARN-002/003/004/005): progress, puzzles, own-game drills.
+  trainingSummary: () => get<TrainingSummaryResponse>('/training/summary'),
+  trainingPuzzle: (theme?: string, source?: string) => {
+    const params = new URLSearchParams();
+    if (theme) params.set('theme', theme);
+    if (source) params.set('source', source);
+    const query = params.toString();
+    return get<PuzzleResponse>(`/training/puzzle${query ? `?${query}` : ''}`);
+  },
+  trainingMine: () => get<MinePuzzleResponse[]>('/training/mine'),
+  submitTrainingAttempt: (p: TrainingAttemptRequest) =>
+    post<TrainingAttemptResponse>('/training/attempts', p),
 };

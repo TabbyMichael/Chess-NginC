@@ -3,7 +3,7 @@
  * grades plus geometry for the evaluation graph. Pure functions so the page
  * stays declarative and the math is unit-testable.
  */
-import type { MoveQuality, ReviewEvalPoint } from './api-types';
+import type { MoveQuality, ReviewEvalPoint, ReviewMoveResponse } from './api-types';
 
 export type QualityMeta = {
   /** Short symbol shown in the move list (Chess.com-style glyph). */
@@ -88,4 +88,42 @@ export function graphPath(coords: GraphPoint[]): string {
 export function uciSquares(uci: string): { from: string; to: string } | null {
   if (uci.length < 4) return null;
   return { from: uci.slice(0, 2), to: uci.slice(2, 4) };
+}
+
+/**
+ * The API speaks White-up (one number, no ambiguity about who moved). Callers
+ * that speak for one side - the report card, the narrator - re-read it from
+ * that player's perspective.
+ */
+export function winPctFor(
+  winPct: number | null | undefined,
+  perspective: 'w' | 'b',
+): number | null {
+  if (winPct == null) return null;
+  return perspective === 'b' ? 100 - winPct : winPct;
+}
+
+/** 'Sicilian Defense: Najdorf Variation, English Attack' → 'Sicilian Defense'. */
+export function openingFamily(name?: string | null): string {
+  if (!name) return '';
+  return name.split(':')[0].trim();
+}
+
+/**
+ * Mean expectancy over every ply the game actually spent inside one opening —
+ * the honest version of "how good is this opening", since it is derived from
+ * this game's own evaluations rather than someone else's results table.
+ */
+export function openingAverage(
+  moves: ReviewMoveResponse[],
+  family: string,
+  perspective: 'w' | 'b',
+): number | null {
+  if (!family) return null;
+  const values = moves
+    .filter((move) => openingFamily(move.opening_name) === family)
+    .map((move) => winPctFor(move.win_pct, perspective))
+    .filter((value): value is number => value != null);
+  if (values.length === 0) return null;
+  return Math.round(values.reduce((total, value) => total + value, 0) / values.length);
 }

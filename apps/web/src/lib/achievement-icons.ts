@@ -11,6 +11,7 @@ import {
   Crown,
   Flag,
   Gem,
+  GraduationCap,
   Layers,
   Medal,
   Swords,
@@ -43,6 +44,7 @@ export const GROUP_ICONS: Record<string, LucideIcon> = {
   review: Brain,
   engine: Cpu,
   mode: Users,
+  training: GraduationCap,
 };
 
 export const DEFAULT_GROUP_ICON = Trophy;

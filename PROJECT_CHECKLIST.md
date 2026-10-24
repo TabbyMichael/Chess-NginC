@@ -323,7 +323,7 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 - **Implemented & verified (`[x]`):** FND-001..FND-022, CHS-001..CHS-024, AI-001..AI-005, AI-007..AI-008, AI-011..AI-012, AI-015..AI-021, AI-024, DB-001..DB-007, DB-010..DB-017, DB-018..DB-021, SEC-001..SEC-008, SEC-010..SEC-012, SEC-014..SEC-017, SEC-020..SEC-021, API-001..API-012, API-016..API-025, WEB-001..WEB-028, WEB-030..WEB-031, BEN-001..BEN-013, BEN-018..BEN-020, BEN-022, QA-001..QA-026, REL-001..REL-017 (211 items)
 - **Intentionally deferred (`[-]`):** API-013 (analysis UX decision), API-014/API-015 (benchmark harness, Phase 7).
 - **Not yet started (`[ ]`):** WEB-029 (browser e2e — Playwright harness), BEN-014..017 + BEN-021, and remaining Phase 6 P2/P3 items.
-- **Phase 10 (`[x]`, verified):** FEEL-001..006, PLAY-001..003, REVIEW-001..006, ACH-001..007 (22 items) — play feel, real Stockfish opponent, game review, achievements. Phase 9's deeper analysis items (worker pool, win-probability model, eval cache, async jobs, tactics, ELO-aware play) remain open.
+- **Phase 10 (`[x]`, verified):** FEEL-001..006, PLAY-001..003, REVIEW-001..009, ACH-001..007, LEARN-001..006 (31 items) — play feel, real Stockfish opponent, game review, achievements, and a Learn section of themed drills + puzzles from your own games (which closes REV-005). Phase 9's deeper analysis items (worker pool, win-probability model, eval cache, async jobs, a generic tactics detector, ELO-aware play) remain open.
 - **Deferred (`[-]`):** SEC-018, SEC-019 (required before public release)
 - **Blocked (`[!]`):** none.
 
@@ -345,7 +345,7 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 | ANL-001 | Engine provider interface (custom + Stockfish pluggable) | P1 | [x] | `app/engine/provider.py`: `EngineProvider.analyse(AnalyseRequest)` → `AnalysisResult` with `PrincipalVariation`s; used by play, opponent and review |
 | ANL-002 | Stockfish MultiPV support (best + 2nd/3rd lines) | P1 | [x] | `stockfish.py`: `multipv` 1-5 clamped, per-line `move/score/pv`; review asks for 3 |
 | ANL-003 | Warm Stockfish worker pool (no spawn-per-move) | P1 | [x] | `StockfishProvider` doubles as a context manager: inside `with`, one process serves every `analyse` in the batch (TD-013). Review opens one via `open_stockfish_provider(for_review=True)`. Measured — 13-position batch warm ~11 s vs ~24.6 s one-process-per-ply on the same container; a failed analysis drops the process instead of reusing it |
-| ANL-004 | Win-probability model (cp + mate → win%) | P1 | [ ] | Not built; review grades on centipawn loss + mate distance |
+| ANL-004 | Win-probability model (cp + mate → win%) | P1 | [x] | `app/engine/win_probability.py`: logistic on the Elo equivalent of the eval (1 pawn = 200 Elo), mate-distance overrides, 1..99, exactly symmetric; served as `moves[].win_pct` from White's POV; `tests/test_win_probability.py` |
 | ANL-005 | Eval cache (FEN+depth+MultiPV → result) | P2 | [ ] | Not built; the stored review payload is what makes a re-read free |
 | ANL-006 | Two-pass analysis (fast sweep + deep critical moments) | P2 | [ ] | Not built: single pass at the review bounds |
 | ANL-007 | Higher Stockfish bounds for review (depth ≤25, time ≤5s) | P1 | [x] | `REVIEW_MAX_DEPTH=25` / `REVIEW_MAX_TIME_MS=5000` via `StockfishConfig.bounded(for_review=True)`; play keeps the tight bounds |
@@ -355,7 +355,7 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 
 | ID | Requirement | Pri | Status | Evidence / Location |
 |----|-------------|-----|--------|---------------------|
-| CLS-001 | Centipawn-loss + win%-drop per move | P1 | [ ] | Partial: `app/engine/classifier.py` grades on centipawn loss vs the MultiPV window (mate-distance blended); no win% model yet. Off-window moves are now graded from their own post-ply evaluation (TD-017 resolved); win%-drop still pending (ANL-004) |
+| CLS-001 | Centipawn-loss + win%-drop per move | P1 | [ ] | Partial: `app/engine/classifier.py` grades on centipawn loss vs the MultiPV window (mate-distance blended); the win% model now exists (`app/engine/win_probability.py`, ANL-004) but is display-only — grading on win%-drop still pending |
 | CLS-002 | Label rules: brilliant/great/best/excellent/good/inaccuracy/mistake/blunder/missed-win | P1 | [ ] | Partial: seven grades shipped (brilliant/best/excellent/good/inaccuracy/mistake/blunder) with published thresholds + forced/sacrifice context; `great` and `missed-win` not implemented |
 | CLS-003 | ELO-aware thresholds (same cp loss ≠ same label) | P1 | [ ] | scale by player rating + position complexity + game phase |
 | CLS-004 | Fair accuracy model (expected-loss calibrated) | P1 | [ ] | `accuracy = 100*exp(-actual/expected(rating, complexity))` |
@@ -365,8 +365,8 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 
 | ID | Requirement | Pri | Status | Evidence / Location |
 |----|-------------|-----|--------|---------------------|
-| TAC-001 | Fork / pin / skewer / discovered / hanging-piece detectors | P1 | [ ] | `app/tactics/patterns.py`, before-vs-after diff (created vs missed) |
-| TAC-002 | Mate-in-1/2 threat + back-rank + trapped-piece detectors | P2 | [ ] | same module, tested on known puzzles |
+| TAC-001 | Fork / pin / skewer / discovered / hanging-piece detectors | P1 | [ ] | Partial: `app/training/verify.py` proves fork/pin/hanging *drill positions* by pattern (material gained through the forced line), not a generic over-the-board detector yet — no `app/tactics/patterns.py` scan of live games |
+| TAC-002 | Mate-in-1/2 threat + back-rank + trapped-piece detectors | P2 | [ ] | Partial: `mate` and `backrank` themes are named and re-verified in `app/training/verify.py` (`mate_in_one_exists`, escape-square check); no mate-in-2 search or general trapped-piece scan |
 | TAC-003 | Sacrifice evaluator (material given vs compensation) | P2 | [ ] | distinguishes real sacs from blunders that look flashy |
 
 ### Stage 4 — Coaching (rule templates first, LLM later)
@@ -376,7 +376,7 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 | COA-001 | Grounded rule-based explanations per label | P1 | [ ] | Partial: templates in `app/reviews/explainer.py` cite stored eval/loss/best-move fields only; no standalone `POST /coach/explain` |
 | COA-002 | ELO-calibrated tone (rookie plain+emoji → expert lines+ideas) | P1 | [ ] | `coach_level` param; max 3 key moments for rookies |
 | COA-003 | Retry-the-move before revealing | P2 | [ ] | frontend flow + `POST /coach/retry` check endpoint |
-| COA-004 | Opening coach (ECO name, deviation, plan) | P2 | [ ] | `app/openings/`: book + theory comparison |
+| COA-004 | Opening coach (ECO name, deviation, plan) | P2 | [ ] | Partial: `app/openings/` — offline CC0 book (3,865 EPD-keyed theory positions) names every ply (`opening_eco`/`opening_name`/`in_book`, REVIEW-008). Deviation-from-theory and the plan-per-opening still open |
 | COA-005 | LLM explainer behind grounding guardrail | P3 | [ ] | LLM receives Stockfish JSON only; output validated against stored fields |
 | COA-006 | AI chat over a position with PV citations | P3 | [ ] | `POST /coach/ask`; refuses when no analysis present |
 
@@ -388,7 +388,7 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 | REV-002 | Review payload (moves + labels + lines + graph) | P1 | [ ] | Partial: `GET/POST /games/{id}/review` ships moves + grades + eval graph + accuracy + best-move hints (single ply, not full PV lines) — see REVIEW-001..005 below |
 | REV-003 | Review UI: eval bar, arrows, variations, retry, accuracy dial | P1 | [ ] | Partial: `/games/:id/review` has the eval graph, per-ply board, graded move list and improvement shortcuts; no arrows, PV browsing or retry-the-move |
 | REV-004 | Weakness tracking across games | P2 | [ ] | `player_profiles`: recurring patterns (e.g. "misses back-rank") |
-| REV-005 | Personalised puzzles from your blunders | P3 | [ ] | `app/training/`: positions where you erred, retry as exercises |
+| REV-005 | Personalised puzzles from your blunders | P3 | [x] | `app/training/from_reviews.py` mines the caller's `completed` reviews for hero mistake/blunder plies (centipawn loss \u2265 `MINE_MIN_LOSS_CP`, legal `best_uci`), served as "A move you missed" puzzles on `/learn`, answered against the stored review and deduped by (fen, move) |
 | REV-006 | ELO-aware play (UCI_Elo + human-like weakening) | P2 | [ ] | personalities for <1000; node caps + top-3 sampling |
 
 ---
@@ -396,9 +396,10 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 ## Phase 10 — Play feel, real opponent, game review & achievements
 
 > Shipped slice of the analysis roadmap: feedback that makes moves feel right, a real
-> Stockfish opponent, a per-game engine review that teaches, and a 200+ achievement
-> catalog that rewards continued play. Gates for this phase: 254 pytest (fake Stockfish
-> binary), ruff/mypy/alembic clean; eslint + `tsc --noEmit` + 143 vitest + `vite build` clean.
+> Stockfish opponent, a per-game engine review that teaches, a 200+ achievement
+> catalog that rewards continued play, and a Learn section of themed drills plus
+> puzzles from your own games. Gates for this phase: 382 pytest (fake Stockfish
+> binary), ruff/mypy/alembic clean; eslint + `tsc --noEmit` + 236 vitest + `vite build` clean.
 > Verified end-to-end against a real Stockfish in the running container; two quality gaps that
 > measurement exposed are recorded as TD-013 (synchronous, ~1.2 s per ply) and TD-017
 > (moves outside the engine's top-3 window are graded from a placeholder).
@@ -432,6 +433,9 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 | REVIEW-004 | Stored per (game, player) | P1 | [x] | `game_reviews` + migration `c5e9a3d7f410`; JSON payload, `status`/`error` recorded on failure |
 | REVIEW-005 | Cached reads, forced re-analysis | P1 | [x] | `GET /games/{id}/review` → `409` when absent; `force` updates the same row (unique constraint holds) |
 | REVIEW-006 | Review page: graph, board replay, grades, improvements | P1 | [x] | `/games/:id/review` — `ReviewPage.tsx`, `EvalGraph.tsx`, `lib/review.ts`; report card + hero-colour improvement list; 17 tests |
+| REVIEW-007 | Guided tour of the recorded plies | P1 | [x] | `ReviewPage.tsx` lands on ply 1 (the start position) instead of the last ply; First/Prev/Next/Last strip with a `Move n of N` counter, disabled at both bounds; `ArrowLeft`/`ArrowRight`/`Home`/`End` walk the same cursor, ignored inside fields and with modifiers held; board stays read-only. `ReviewPage.test.tsx` 8 → 19 tests, the eight originals unchanged (that is the "retain everything" check) |
+| REVIEW-008 | Per-ply opening name + win expectancy panel | P1 | [x] | `app/openings/` + `app/reviews/annotate.py` derive `opening_eco`/`opening_name`/`in_book`/`win_pct` at read time (no migration, no re-analysis — verified live on a payload written without those keys); `Opening and odds` card shows ECO · name, In/Out of book, the hero-side expectancy bar and this game's family average; `tests/test_openings.py` + `tests/test_win_probability.py` (45) + 8 `TestReviewAnnotation` |
+| REVIEW-009 | Calm spoken narration of each step, free | P1 | [x] | `lib/voice.ts` (browser `speechSynthesis`, rate/pitch 0.92, cancel-then-speak, sentence-aware chunking ≤180 chars, hidden voice fallback ladder) + `lib/narration.ts` (SAN and `cp` shorthand put into English); `VoiceToggle.tsx` on the `voice` preference; first render kept silent (browsers drop gesture-less speech); `voice.test.ts` 16 + `narration.test.ts` 28; inert where no speech engine exists, so the audible read needs a human ear in a real browser |
 
 ### Stage 3 — Achievements
 
@@ -444,5 +448,16 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 | ACH-005 | Gallery with real progress | P1 | [x] | `GET /me/achievements` + `/achievements` page (grouped, filterable, progress bars); dashboard strip shows recent unlocks |
 | ACH-006 | Celebrations arrive with the action that earned them | P1 | [x] | `unlocked_achievements` on game mutations + completed reviews; `GET /me/achievements/new` for lazy catch-up; WS `achievement` is sent to one seat only (`test_unlocks_go_to_the_actor_and_never_the_opponent`) |
 | ACH-007 | One toast per unlock | P1 | [x] | `AchievementCelebration.tsx` (confetti + tier ring + auto-dismiss), provider de-dupes ride vs catch-up, `POST /me/achievements/seen` acknowledges |
+
+### Stage 6 — Learning (themed drills + your own games)
+
+| ID | Requirement | Pri | Status | Evidence / Location |
+|----|-------------|-----|--------|---------------------|
+| LEARN-001 | Themed drill catalog, machine-proved | P1 | [x] | `app/training/drills.py`: 18 hand-authored drills (6 themes × 3 levels — mate/hanging/fork/pin/backrank/endgame); `app/training/verify.py` re-proves every one with python-chess (soundness by pattern) and `verify_all()` runs in CI, so an unsound drill fails the build |
+| LEARN-002 | Interactive drill board | P1 | [x] | `/learn` (`LearnPage.tsx`) reuses `Chessboard` in `status="active"`; a click submits UCI and the server verdict decides `solved` — the puzzle payload is deliberately answer-free (a test asserts `solution`/`alternatives`/`line` are absent) |
+| LEARN-003 | Per-skill progress with an easy→hard ramp | P1 | [x] | `app/training/service.py`: append-only `training_attempts` log → `next_level` (+1 on three correct, −1 on two consecutive wrong, clamped 1..3) + `summary` per-theme `{solved, attempts, level, pct, streak}` |
+| LEARN-004 | Puzzles from your own games | P1 | [x] | `app/training/from_reviews.py` mines the caller's completed reviews for hero mistake/blunder plies; solved against the stored review, key `mine:{game}:{ply}`, links back to the game review |
+| LEARN-005 | Points and achievement ladders | P1 | [x] | gameless ledger awards via `slot_key` + partial unique index (`uq_point_award_slot_key`) — `POINT_RULES` gains `drill:2`/`theme_clear:5`; `training` achievement group (`Puzzle Solver`, `Sharp Streak`) computed in `stats.py`; migration `e2a9c4f1b830` |
+| LEARN-006 | Animated review loader | P1 | [x] | `src/components/ReviewThinking.tsx` replays the finished game *backwards* ply-by-ply (`lib/chess.ts` `forwardFens`) while analysis runs, then loops; replaces the bare text card in `ReviewPage`'s loading branch; `clearInterval` on unmount |
 
 > Statuses must be updated in this file only after the corresponding acceptance criteria are met and checks pass.

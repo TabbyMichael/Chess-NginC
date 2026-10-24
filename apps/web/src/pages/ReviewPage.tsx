@@ -1,24 +1,68 @@
 /**
- * Post-game review (REVIEW-003/004/006): every ply classified by Stockfish
- * (brilliant → blunder), the engine's suggested improvement, a coaching line,
- * the evaluation graph and a per-move board replay.
+ * Post-game review (REVIEW-003/004/006/007/008/009): every ply classified by
+ * Stockfish (brilliant → blunder), the engine's suggested improvement, a
+ * coaching line, the evaluation graph and a per-move board replay.
  *
  * Data comes from GET /games/:id/review when a review is stored, otherwise the
  * page triggers POST (one engine pass) and shows progress. The board is a
  * read-only replay: no move submission lives here.
+ *
+ * The replay is a guided tour: it opens on the first move, and the navigation
+ * strip, the arrow keys and the move list all walk the same recorded plies while
+ * each position names its opening, its engine win expectancy and a spoken line.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, Sparkles } from 'lucide-react';
+import {
+  ArrowLeft,
+  BookOpen,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  RefreshCw,
+  Sparkles,
+} from 'lucide-react';
 
 import Chessboard from '../components/Chessboard';
 import EvalGraph from '../components/EvalGraph';
+import ReviewThinking from '../components/ReviewThinking';
+import VoiceToggle from '../components/VoiceToggle';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { useAchievementRide } from '../app/useAchievementRide';
 import { ApiError, api } from '../lib/api-client';
 import type { ReviewMoveResponse, ReviewResponse } from '../lib/api-types';
-import { QUALITY_ORDER, formatEval, qualityMeta, uciSquares } from '../lib/review';
+import { narratePly } from '../lib/narration';
+import {
+  QUALITY_ORDER,
+  formatEval,
+  openingAverage,
+  openingFamily,
+  qualityMeta,
+  uciSquares,
+  winPctFor,
+} from '../lib/review';
+import { getPref } from '../lib/settings';
+import { speak, stopSpeaking } from '../lib/voice';
+
+/** Where the tour starts: the first move, so the game is seen from its opening. */
+function initialPly(data: ReviewResponse): number | null {
+  return data.moves[0]?.ply ?? null;
+}
+
+type CursorMove = 'first' | 'prev' | 'next' | 'last';
+
+/** Arrow/home/end keys that walk the tour, mapped to the same verbs as the strip. */
+const NAV_KEYS: Record<string, CursorMove> = {
+  ArrowLeft: 'prev',
+  ArrowRight: 'next',
+  Home: 'first',
+  End: 'last',
+};
+
+/** Fields that swallow their own keystrokes: typing must not move the board. */
+const KEY_CONSUMERS = /^(input|textarea|select|button)$/i;
 
 function QualityBadge({ quality }: { quality: string }) {
   const meta = qualityMeta(quality);
@@ -58,7 +102,7 @@ export default function ReviewPage() {
       .then((data) => {
         if (cancelled) return;
         setReview(data);
-        setSelectedPly(data.moves.length ? data.moves[data.moves.length - 1].ply : null);
+        setSelectedPly(initialPly(data));
         setLoading(false);
       })
       .catch((err: unknown) => {
@@ -77,15 +121,66 @@ export default function ReviewPage() {
     return found ?? review.moves[review.moves.length - 1] ?? null;
   }, [review, selectedPly]);
 
+  // Where the cursor sits in the recorded plies; -1 while nothing is loaded.
+  const cursor = useMemo(() => {
+    if (!review || selectedPly == null) return -1;
+    return review.moves.findIndex((m) => m.ply === selectedPly);
+  }, [review, selectedPly]);
+
+  const goTo = useCallback(
+    (where: CursorMove) => {
+      if (!review || review.moves.length === 0) return;
+      const last = review.moves.length - 1;
+      const at = cursor === -1 ? 0 : cursor;
+      const next =
+        where === 'first' ? 0 : where === 'last' ? last : where === 'prev' ? at - 1 : at + 1;
+      const move = review.moves[Math.max(0, Math.min(last, next))];
+      if (move) setSelectedPly(move.ply);
+    },
+    [cursor, review],
+  );
+
+  // Arrow keys walk the tour for keyboard users; the strip does the same job for
+  // everyone else, and both drive the single `selectedPly` cursor.
+  useEffect(() => {
+    function onKeydown(event: KeyboardEvent) {
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      const where = NAV_KEYS[event.key];
+      if (!where) return;
+      const target = event.target as HTMLElement | null;
+      if (target && KEY_CONSUMERS.test(target.tagName)) return;
+      event.preventDefault();
+      goTo(where);
+    }
+    window.addEventListener('keydown', onKeydown);
+    return () => window.removeEventListener('keydown', onKeydown);
+  }, [goTo]);
+
   // A finished analysis is a milestone of its own (reviews_completed).
   useAchievementRide(review);
+
+  // Narrate each step (REVIEW-009). The first render is deliberately silent:
+  // browsers drop speech that was not preceded by a gesture, so the automatic
+  // arrival at move one stays quiet and the first click or key does the talking.
+  const spoken = useRef(false);
+  useEffect(() => {
+    if (!selected) return;
+    if (!spoken.current) {
+      spoken.current = true;
+      return;
+    }
+    if (getPref('voice')) speak(narratePly(selected));
+  }, [selected]);
+
+  // Leaving the review must not leave a voice talking over the next page.
+  useEffect(() => () => stopSpeaking(), []);
 
   async function reanalyse() {
     setLoading(true);
     try {
       const data = await api.createGameReview(gameId, { force: true });
       setReview(data);
-      setSelectedPly(data.moves.length ? data.moves[data.moves.length - 1].ply : null);
+      setSelectedPly(initialPly(data));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to re-analyse');
     } finally {
@@ -100,9 +195,10 @@ export default function ReviewPage() {
       <main id="main-content" className="review-page">
         <Card>
           <h1 className="card-title">Reviewing game…</h1>
-          <p className="u-muted" role="status">
-            Stockfish is replaying every move. Long games can take a minute.
-          </p>
+          <ReviewThinking
+            gameId={gameId}
+            fens={review ? review.moves.map((m) => m.pre_fen) : undefined}
+          />
         </Card>
       </main>
     );
@@ -145,6 +241,7 @@ export default function ReviewPage() {
   }
 
   const hero = review.hero_color === 'w' ? 'White' : 'Black';
+  const heroSide = review.hero_color;
   // Online games are played under /online/:id; the linking page passes that
   // route through state so "back" lands where the player came from.
   const backTo =
@@ -154,6 +251,13 @@ export default function ReviewPage() {
     ? { fen: selected.pre_fen, last: uciSquares(selected.uci) }
     : { fen: null, last: null };
   const improvementsForHero = review.improvements.filter((i) => i.color === review.hero_color);
+  // Opening + expectancy for the ply on screen (REVIEW-008). The family average
+  // is read over the whole game, so it does not jump around mid-opening.
+  const family = openingFamily(selected?.opening_name);
+  const heroPct = winPctFor(selected?.win_pct, heroSide);
+  const familyPct = selected ? openingAverage(review.moves, family, heroSide) : null;
+  const isFirst = cursor <= 0;
+  const isLast = cursor >= review.moves.length - 1;
 
   return (
     <main id="main-content" className="review-page">
@@ -166,6 +270,7 @@ export default function ReviewPage() {
           <RefreshCw size={14} aria-hidden="true" />
           Re-analyse
         </Button>
+        <VoiceToggle />
       </div>
 
       <div className="review-grid">
@@ -184,6 +289,53 @@ export default function ReviewPage() {
             ) : (
               <p className="u-muted">No moves to show.</p>
             )}
+            {review.moves.length > 0 && (
+              <div className="review-nav" role="group" aria-label="move navigation">
+                <Button
+                  variant="ghost"
+                  className="nav-btn"
+                  onClick={() => goTo('first')}
+                  disabled={isFirst}
+                  aria-label="First move"
+                  title="First move"
+                >
+                  <ChevronsLeft size={16} aria-hidden="true" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="nav-btn"
+                  onClick={() => goTo('prev')}
+                  disabled={isFirst}
+                  aria-label="Previous move"
+                  title="Previous move (Left arrow)"
+                >
+                  <ChevronLeft size={16} aria-hidden="true" />
+                </Button>
+                <span className="review-nav-count">
+                  Move {selected ? selected.ply : 0} of {review.moves.length}
+                </span>
+                <Button
+                  variant="ghost"
+                  className="nav-btn"
+                  onClick={() => goTo('next')}
+                  disabled={isLast}
+                  aria-label="Next move"
+                  title="Next move (Right arrow)"
+                >
+                  <ChevronRight size={16} aria-hidden="true" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="nav-btn"
+                  onClick={() => goTo('last')}
+                  disabled={isLast}
+                  aria-label="Last move"
+                  title="Last move"
+                >
+                  <ChevronsRight size={16} aria-hidden="true" />
+                </Button>
+              </div>
+            )}
             {selected && (
               <p className="review-current-move">
                 <QualityBadge quality={selected.quality} />
@@ -197,6 +349,50 @@ export default function ReviewPage() {
                 <span className="review-explanation">{selected.explanation}</span>
               </p>
             )}
+          </Card>
+
+          <Card>
+            <h2 className="card-title">
+              <BookOpen size={15} aria-hidden="true" /> Opening and odds
+            </h2>
+            {selected?.opening_name ? (
+              <div className="review-opening">
+                <p className="review-opening-line">
+                  {selected.opening_eco && (
+                    <span className="opening-eco">{selected.opening_eco}</span>
+                  )}
+                  <strong>{selected.opening_name}</strong>
+                  <span className={`book-badge${selected.in_book ? ' in-book' : ''}`}>
+                    {selected.in_book ? 'In book' : 'Out of book'}
+                  </span>
+                </p>
+                {heroPct != null && (
+                  <div className="review-odds">
+                    <div
+                      className="odds-bar"
+                      role="img"
+                      aria-label={`${hero} win expectancy ${heroPct} percent`}
+                    >
+                      <span className="odds-fill" style={{ width: `${heroPct}%` }} />
+                    </div>
+                    <p className="u-muted">
+                      {hero}&apos;s engine win expectancy here: <strong>{heroPct}%</strong>
+                    </p>
+                  </div>
+                )}
+                {familyPct != null && (
+                  <p className="u-muted">Across this opening in this game, about {familyPct}%.</p>
+                )}
+              </div>
+            ) : (
+              <p className="u-muted">
+                This position is outside the theory book, so no opening is named for it.
+              </p>
+            )}
+            <p className="u-muted review-opening-note">
+              Engine expectancy for the position on the board — not a win rate copied from other
+              players&rsquo; games.
+            </p>
           </Card>
 
           <Card>

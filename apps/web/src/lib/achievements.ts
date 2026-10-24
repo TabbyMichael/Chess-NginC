@@ -33,6 +33,7 @@ export const GROUP_LABELS: Record<string, string> = {
   review: 'Review & improvement',
   engine: 'Against the engine',
   mode: 'Ways to play',
+  training: 'Training & drills',
 };
 
 export function groupLabel(group: string): string {

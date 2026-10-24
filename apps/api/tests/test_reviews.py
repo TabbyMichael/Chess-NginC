@@ -5,6 +5,7 @@ import chess
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api.v1.serializers import to_review_response
 from app.engine.classifier import (
     MoveContext,
     MoveQuality,
@@ -14,6 +15,8 @@ from app.engine.classifier import (
 from app.engine.provider import AnalyseRequest, AnalysisResult, PrincipalVariation
 from app.engine.stockfish import StockfishUnavailableError
 from app.models.game_move import GameMove as GameMoveRow
+from app.models.game_review import GameReview
+from app.reviews.annotate import annotate_moves
 from app.reviews.explainer import explain_move
 from app.reviews.service import _accuracy, analyse_game
 
@@ -387,3 +390,113 @@ class TestReviewEndpoints:
         assert resp.status_code == 200
         assert resp.json()["status"] == "failed"
         assert "no binary" in (resp.json()["error"] or "")
+
+
+def _payload_plies(sans: list[str], cp: int = 100, mate: int | None = None) -> list[dict]:
+    """Replay SAN into the shape `analyse_game` stores.
+
+    `eval_cp` is written from the mover's point of view, exactly as the review
+    service does it, so the annotation's perspective flip is a real test.
+    """
+    board = chess.Board(START_FEN)
+    entries: list[dict] = []
+    for index, san in enumerate(sans):
+        pre_fen = board.fen()
+        mover_is_white = board.turn
+        move = board.push_san(san)
+        entries.append(
+            {
+                "ply": index + 1,
+                "move_number": index // 2 + 1,
+                "uci": move.uci(),
+                "san": san,
+                "pre_fen": pre_fen,
+                "color": "w" if mover_is_white else "b",
+                "quality": "best",
+                "centipawn_loss": 0,
+                "best_uci": move.uci(),
+                "eval_cp": cp,
+                "eval_mate": mate,
+                "explanation": "test line",
+            }
+        )
+    return entries
+
+
+class TestReviewAnnotation:
+    """Derived fields computed on the way out (REVIEW-008 / ANL-004 / COA-004)."""
+
+    RUY_LOPEZ = ["e4", "e5", "Nf3", "Nc6", "Bb5", "a6", "Ba4", "h6"]
+
+    def test_every_ply_gets_the_four_fields(self) -> None:
+        annotated = annotate_moves(_payload_plies(self.RUY_LOPEZ))
+        for item in annotated:
+            assert {"opening_eco", "opening_name", "in_book", "win_pct"} <= set(item)
+        assert annotated[4]["opening_eco"] == "C60"
+        assert annotated[4]["opening_name"] == "Ruy Lopez"
+        assert annotated[4]["in_book"] is True
+
+    def test_the_name_survives_leaving_the_book(self) -> None:
+        # Theory names a position, not a mistake: once play has gone off the book
+        # the panel still says which opening got there, flagged as out of book.
+        annotated = annotate_moves(_payload_plies(self.RUY_LOPEZ))
+        off_book = annotated[-1]
+        assert off_book["in_book"] is False
+        assert off_book["opening_name"] == "Ruy Lopez: Morphy Defense"
+        assert off_book["opening_eco"] == "C70"
+
+    def test_first_ply_of_an_unlisted_line_has_no_name(self) -> None:
+        # A stored ply whose position chess cannot read is a gap, not a crash.
+        moves = [{"pre_fen": "not a fen", "uci": "e2e4", "color": "w", "eval_cp": 0}]
+        annotated = annotate_moves(moves)
+        assert annotated[0]["opening_name"] is None
+        assert annotated[0]["in_book"] is False
+
+    def test_expectancy_is_reported_from_white_side(self) -> None:
+        # Both plies were stored as +100 cp for the player who moved, so one of
+        # them is a one-pawn edge and the other is not.
+        annotated = annotate_moves(_payload_plies(["e4", "e5"]))
+        assert annotated[0]["win_pct"] == 76
+        assert annotated[1]["win_pct"] == 24
+
+    def test_mate_is_flipped_the_same_way(self) -> None:
+        annotated = annotate_moves(_payload_plies(["e4", "e5"], cp=0, mate=4))
+        assert annotated[0]["win_pct"] == 99
+        assert annotated[1]["win_pct"] == 1
+
+    def test_a_ply_without_an_evaluation_stays_unknown(self) -> None:
+        moves = [{"pre_fen": START_FEN, "uci": "e2e4", "color": "w"}]
+        assert annotate_moves(moves)[0]["win_pct"] is None
+
+    def test_the_stored_payload_is_never_touched(self) -> None:
+        # Annotation is a read-side view: the JSON in the database is not rewritten.
+        moves = _payload_plies(["e4", "e5"])
+        before = [dict(item) for item in moves]
+        annotated = annotate_moves(moves)
+        assert moves == before
+        assert all(item["opening_name"] is not None for item in annotated)
+        assert all(id(item) not in {id(m) for m in moves} for item in annotated)
+
+    def test_a_row_saved_before_these_fields_still_serialises(self) -> None:
+        row = GameReview(
+            id=1,
+            game_id=7,
+            status="completed",
+            provider="stockfish",
+            depth=15,
+            hero_color="w",
+            payload={
+                "summary": {"ply_count": 2, "accuracy": {"w": 90, "b": 82}},
+                "counts": {"best": 2},
+                "moves": _payload_plies(["e4", "e5"]),
+                "eval_graph": [],
+                "improvements": [],
+            },
+        )
+        response = to_review_response(row)
+        first = response.moves[0]
+        assert first.opening_eco == "B00"
+        assert first.in_book is True
+        assert first.win_pct == 76
+        # And it goes out to the wire as plain JSON.
+        assert response.model_dump(mode="json")["moves"][0]["opening_name"] == "King's Pawn Game"
