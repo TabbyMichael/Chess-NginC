@@ -17,6 +17,7 @@ const THEME_SEQUENCE = [
   'discovered',
   'backrank',
   'endgame',
+  'sequence',
 ] as const;
 
 /** One teaching line per theme, shown under the card title. */
@@ -29,6 +30,7 @@ const THEME_IDEAS: Record<string, string> = {
   discovered: 'One move unmasks another piece waiting in the shadows.',
   backrank: 'Give your king a square to escape to.',
   endgame: 'Promote a pawn and march the king forward.',
+  sequence: 'Several moves, one forced line. Play it home.',
   missed: 'The move you missed in one of your own games.',
 };
 

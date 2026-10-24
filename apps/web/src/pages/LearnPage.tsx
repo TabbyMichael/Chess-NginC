@@ -31,6 +31,10 @@ export default function LearnPage() {
   const [mine, setMine] = useState<MinePuzzleResponse[]>([]);
   const [puzzle, setPuzzle] = useState<PuzzleResponse | null>(null);
   const [result, setResult] = useState<TrainingAttemptResponse | null>(null);
+  // Multi-move stepper state: the own-moves replayed so far and the live board
+  // (advanced by the server's scripted reply). Single-move leaves these idle.
+  const [played, setPlayed] = useState<string[]>([]);
+  const [currentFen, setCurrentFen] = useState<string>('');
   // The board is parent-controlled: it needs a selected square to preview moves.
   const [selected, setSelected] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -73,6 +77,8 @@ export default function LearnPage() {
       setPuzzle(data);
       setResult(null);
       setSelected(null);
+      setPlayed([]);
+      setCurrentFen(data.fen);
     } catch (err) {
       // 404 is a real answer here: everything in that theme is already solved.
       setError(err instanceof ApiError ? err.message : 'Could not load a puzzle');
@@ -89,6 +95,30 @@ export default function LearnPage() {
       const data = await api.submitTrainingAttempt({ key: puzzle.key, uci, reveal });
       setResult(data);
       await refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not record the attempt');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // A multi-move puzzle is replayed ply by ply: the server auto-plays the forced
+  // reply and only records an attempt once the run resolves (solved or wrong).
+  async function submitSequence(uci: string) {
+    if (!puzzle) return;
+    setBusy(true);
+    setError(null);
+    const nextPlayed = [...played, uci];
+    try {
+      const data = await api.submitTrainingAttempt({ key: puzzle.key, uci: '', moves: nextPlayed });
+      if (data.complete === false && data.position_fen) {
+        setPlayed(nextPlayed);
+        setCurrentFen(data.position_fen);
+        setSelected(null);
+      } else {
+        setResult(data);
+        await refresh();
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not record the attempt');
     } finally {
@@ -155,18 +185,27 @@ export default function LearnPage() {
         <Card className="drill-panel">
           <div className="drill-board board-frame">
             <Chessboard
-              fen={puzzle.fen}
+              fen={currentFen || puzzle.fen}
               status="active"
               selected={selected}
               onSelect={setSelected}
-              onMove={(from, to, promotion) => submit(`${from}${to}${promotion ?? ''}`)}
+              onMove={(from, to, promotion) => {
+                const uci = `${from}${to}${promotion ?? ''}`;
+                if ((puzzle.player_moves ?? 1) > 1) submitSequence(uci);
+                else submit(uci);
+              }}
               disabled={busy || result !== null}
               lastMove={result ? uciFromTo(`${result.solution_from}${result.solution_to}`) : null}
-              inCheck={isCheck(puzzle.fen)}
+              inCheck={isCheck(currentFen || puzzle.fen)}
             />
           </div>
           <div className="drill-side">
             <p className="drill-prompt">{puzzle.prompt}</p>
+            {(puzzle.player_moves ?? 1) > 1 && !result && (
+              <p className="drill-progress">
+                Move {played.length + 1} of {puzzle.player_moves}
+              </p>
+            )}
             {result ? (
               <>
                 <p className={`drill-banner${result.solved ? ' solved' : ''}`} role="status">

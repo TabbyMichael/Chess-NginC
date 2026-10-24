@@ -1075,4 +1075,75 @@ cards; TD-019's engine-verified regeneration if a player reports a co-win marked
 (the pattern prover accepts only the drill's own move, which now governs hundreds of
 generated positions).
 
+---
+
+## Session 2026-10-24 (s) — Learn: multi-move `sequence` puzzles + catalog to 829
+
+**Goal.** Two deliverables: (A) a new `sequence` theme of multi-move puzzles solved by
+playing a whole forced line, graded by exact-line replay; (B) grow the drill catalog by
+**400+** verified positions, taking the total past 750.
+
+**Data model (no migration).** `drills.py`: one new field on the frozen `Drill`,
+`moves: tuple[str, ...] = ()` — a `sequence` drill's full player-first alternating line
+(odd length); `solution` mirrors `moves[0]` so single-key resolution still works, and
+`player_moves = (len(moves)+1)//2`. Added the 9th theme name ("Multi-Move Puzzles") and
+appended `sequence` to `THEME_ORDER`.
+
+**Verification.** `verify.py`: `_verify_sequence(drill, board)` replays the whole line
+from the start FEN and requires (i) every ply legal, (ii) every **opponent** ply to have
+exactly one legal move (the forced reply) — this is what makes the material/mate claim
+sound without an engine, (iii) no premature mate/stalemate before the final player ply,
+and (iv) a terminal that is checkmate or nets `>= MIN_GAIN_CP`. Routed via the
+`_SEQUENCE_THEMES` branch in `verify()`.
+
+**Generation.** Import must stay fast, so multi-move lines are **authored offline** and
+embedded as `_SEQUENCE_SEEDS` (120 certified forced-mate seeds across 3 levels), then
+re-certified by `verify()` at import (the safety net prunes any bad entry). A FEN dedup
+in `_sequence_drills()` (exact-line replay needs one line per board) lands **65** sequence
+drills (L1 27 / L2 29 / L3 9). Raised `_CAP` 16 → 48 for the large-geometry single-move
+families; `verify()` still prunes unsound candidates so quality is unchanged. All shipped
+sequence content is forced mates; forced-material sequences are the verifier-supported
+remaining case, left as future work.
+
+**Catalog result: 829 verified drills, 9 themes** (up 458 from 351), import ~0.30s,
+`verify_all(DRILLS) == []`, `scripts/check_drills.py` reports "All 829 drills are sound."
+
+**Grading (stateless, exact-line).** `service.py`: kept `record_attempt` byte-for-byte and
+added `record_sequence_attempt(db, user_id, key, played)` — replays cumulative player
+moves with the scripted forced replies; illegal → `IllegalAttemptError` (422);
+legal-but-wrong → one failed attempt row + reveal, `complete:true`; full correct line →
+one solved row (`uci = moves[-1]`) + reveal, `complete:true`; correct-but-unfinished →
+logs nothing, returns `complete:false` + `position_fen` + `played_san` so the client
+advances the board. `schemas.py`/`training.py`: `PuzzleResponse.player_moves`,
+`TrainingAttemptRequest.moves`, `TrainingAttemptResponse.{complete, position_fen,
+played_san}`; the router branches to `record_sequence_attempt` on a non-empty `moves`.
+
+**Frontend.** `api-types.ts` mirrors the new optional fields; `training.ts` adds
+`sequence` to `THEME_SEQUENCE` + a `THEME_IDEAS` line; `LearnPage.tsx` runs a stepper
+(local `played` + `currentFen`, "Move X of Y" progress line) driving the parent-controlled
+board; `styles.css` gains `.drill-progress`.
+
+**Tests & gates.** Backend: `test_training_drills.py` count assertion raised to
+`len(DRILLS) > 750` + a new `test_every_sequence_drill_forces_a_win` (replays every
+sequence, asserting legality, forced replies, no premature resolve, terminal
+mate-or-gain). `test_training_api.py` gained 5 sequence tests (no-answer move count,
+in-progress logs nothing, full line = one row with points, wrong ply fails+reveals,
+illegal ply 422). Frontend: `training.test.ts` 9-theme order + `themeIdea('sequence')`;
+`LearnPage.test.tsx` a two-ply stepper-to-solve test. Backend ruff format/check + mypy
+clean; 31 backend + 18 frontend training tests green.
+
+**Docs.** `docs/architecture.md` **D12** reworded (multi-move now in scope via
+generation-time forced-line certification; grade-time is exact-line/deterministic; no
+engine) and the `training` module row updated; **TD-019** notes the exact-line limit now
+applies per ply to sequences; `docs/api.md` Training section says 9 themes / 829 and
+documents `moves`/`player_moves`/`complete`/`position_fen`/`played_san`;
+`PROJECT_CHECKLIST.md` LEARN-001 refreshed and a new **LEARN-007** ticked (Phase 10 →
+32 items).
+
+**Remaining / next task.** Human browser pass on `/learn` to eyeball the sequence stepper;
+forced-material sequence generation (the verifier already accepts a gain terminal) and
+TD-019's engine-verified alternative-defence widening if a player reports a co-win marked
+wrong.
+
+
 

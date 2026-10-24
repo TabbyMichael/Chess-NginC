@@ -36,9 +36,11 @@ _VALUE = {
     chess.QUEEN: 900,
 }
 
-# Generous ceiling per (theme, level); families rarely fill every slot and
-# ``verify`` prunes the rest, so the final catalog lands a little under this.
-_CAP = 16
+# Ceiling per (theme, level). Large-geometry families (hanging, discovered, pin,
+# endgame) can fill this; tighter ones (mate, backrank, skewer) land well under
+# and ``verify`` prunes the rest. Tuned so the composed catalog tops 800 while the
+# whole ``DRILLS`` import stays a third of a second.
+_CAP = 48
 
 # Undefended/black pieces worth grabbing, in "hardest to spot" order for levels.
 _HANG_TARGETS = (chess.QUEEN, chess.ROOK, chess.BISHOP, chess.KNIGHT)
@@ -619,6 +621,339 @@ def _backrank_candidates() -> Iterator[tuple[int, str, str, tuple[str, ...], str
                 )
 
 
+# --- Multi-move sequences --------------------------------------------------
+
+# Verified forced-line puzzles. These are produced by an *offline* authoring
+# sweep (a confined black king that always has exactly one legal reply, mated on
+# the final player ply), then re-certified here at import through ``verify()``.
+# Embedding them keeps catalog import fast — hunting these lines live would cost
+# tens of seconds every load, and the multi-move family is inherently a small,
+# hand-checked set rather than a parametric template. ``verify()`` is the safety
+# net: any transcription slip is pruned, never shipped. Entry shape is
+# ``(level, fen, line)`` where ``line`` is the full alternating, player-first
+# line; ``level`` = player-move count - 1 (2 moves = 1, 3 = 2, 4 = 3).
+_SEQUENCE_SEEDS: tuple[tuple[int, str, tuple[str, ...]], ...] = (
+    (1, "6k1/Q4ppp/8/8/8/8/Q7/K7 w - - 0 1", ("a7f7", "g8h8", "f7g8")),
+    (1, "7k/6pp/8/8/Q7/8/Q7/K7 w - - 0 1", ("a2g8", "h8g8", "a4e8")),
+    (1, "k7/pp6/Q7/8/8/8/Q7/K7 w - - 0 1", ("a2d5", "a8b8", "a6b7")),
+    (1, "1k6/ppp5/8/8/3Q4/8/Q7/K7 w - - 0 1", ("a2a7", "b8c8", "a7a8")),
+    (1, "2k5/1pppQ3/8/8/8/Q7/8/K7 w - - 0 1", ("e7d8", "c8d8", "a3f8")),
+    (1, "3k4/2ppp3/Q7/8/8/8/Q7/K7 w - - 0 1", ("a6c8", "d8c8", "a2a8")),
+    (1, "6k1/Q4ppp/8/8/8/8/Q7/K7 w - - 0 1", ("a7f7", "g8h8", "f7f8")),
+    (1, "7k/6pp/8/1Q6/8/8/Q7/K7 w - - 0 1", ("a2g8", "h8g8", "b5e8")),
+    (1, "k7/pp6/Q7/8/8/8/Q7/K7 w - - 0 1", ("a2d5", "a8b8", "d5d8")),
+    (1, "1k6/ppp5/8/8/8/4Q3/Q7/K7 w - - 0 1", ("a2a7", "b8c8", "e3e8")),
+    (1, "2k5/1ppp4/5Q2/8/8/Q7/8/K7 w - - 0 1", ("f6d8", "c8d8", "a3f8")),
+    (1, "3k4/1Qppp3/8/8/8/8/Q7/K7 w - - 0 1", ("b7c8", "d8c8", "a2a8")),
+    (1, "6k1/Q4ppp/8/8/8/8/Q7/K7 w - - 0 1", ("a7f7", "g8h8", "f7e8")),
+    (1, "7k/6pp/2Q5/8/8/8/Q7/K7 w - - 0 1", ("a2g8", "h8g8", "c6e8")),
+    (1, "k7/pp6/Q7/8/8/8/Q7/K7 w - - 0 1", ("a2d5", "a8b8", "d5b7")),
+    (1, "1k6/ppp5/8/8/3Q4/Q7/8/K7 w - - 0 1", ("a3a7", "b8c8", "a7a8")),
+    (1, "2k5/1ppp4/8/6Q1/8/Q7/8/K7 w - - 0 1", ("g5d8", "c8d8", "a3f8")),
+    (1, "3k4/2pppQ2/8/8/8/8/Q7/K7 w - - 0 1", ("f7e8", "d8e8", "a2g8")),
+    (1, "6k1/Q4ppp/8/8/8/8/Q7/K7 w - - 0 1", ("a7f7", "g8h8", "a2a8")),
+    (1, "7k/3Q2pp/8/8/8/8/Q7/K7 w - - 0 1", ("a2g8", "h8g8", "d7e8")),
+    (1, "k7/pp6/Q7/8/8/8/Q7/K7 w - - 0 1", ("a2g2", "a8b8", "a6b7")),
+    (1, "1k6/ppp5/8/8/8/Q3Q3/8/K7 w - - 0 1", ("a3a7", "b8c8", "e3e8")),
+    (1, "2k5/1ppp4/8/8/7Q/Q7/8/K7 w - - 0 1", ("h4d8", "c8d8", "a3f8")),
+    (1, "3k4/2ppp3/6Q1/8/8/8/Q7/K7 w - - 0 1", ("g6e8", "d8e8", "a2g8")),
+    (1, "6k1/Q4ppp/8/8/8/8/Q7/K7 w - - 0 1", ("a2f7", "g8h8", "f7f8")),
+    (1, "7k/6pp/8/8/8/8/Q3Q3/K7 w - - 0 1", ("a2g8", "h8g8", "e2e8")),
+    (1, "k7/pp6/Q7/8/8/8/Q7/K7 w - - 0 1", ("a2g2", "a8b8", "g2b7")),
+    (1, "1k6/ppp5/8/Q7/Q7/8/8/K7 w - - 0 1", ("a5a7", "b8c8", "a7a8")),
+    (1, "2k5/1ppp4/8/1Q6/Q7/8/8/K7 w - - 0 1", ("b5d7", "c8b8", "d7e8")),
+    (1, "3k4/2ppp3/8/7Q/8/8/Q7/K7 w - - 0 1", ("h5e8", "d8e8", "a2g8")),
+    (1, "6k1/Q4ppp/8/8/8/8/Q7/K7 w - - 0 1", ("a2f7", "g8h8", "f7e8")),
+    (1, "7k/6pp/8/8/8/4Q3/Q7/K7 w - - 0 1", ("a2g8", "h8g8", "e3e8")),
+    (1, "k7/pp6/8/3Q4/8/8/Q7/K7 w - - 0 1", ("a2a6", "a8b8", "a6b7")),
+    (1, "1k6/ppp5/8/Q7/Q7/8/8/K7 w - - 0 1", ("a5a7", "b8c8", "a4e8")),
+    (1, "2k5/1ppp4/8/1Q6/Q7/8/8/K7 w - - 0 1", ("b5d7", "c8b8", "d7d8")),
+    (1, "3k4/2ppp3/Q7/8/8/Q7/8/K7 w - - 0 1", ("a6c8", "d8c8", "a3a8")),
+    (1, "6k1/Q4ppp/8/8/8/8/Q7/K7 w - - 0 1", ("a2f7", "g8h8", "f7g7")),
+    (1, "7k/6pp/8/8/4Q3/8/Q7/K7 w - - 0 1", ("a2g8", "h8g8", "e4e8")),
+    (1, "k7/pp6/8/3Q4/8/8/Q7/K7 w - - 0 1", ("a2a6", "a8b8", "d5d8")),
+    (1, "1k6/ppp5/Q7/8/Q7/8/8/K7 w - - 0 1", ("a6a7", "b8c8", "a7a8")),
+    (2, "6k1/3Q1ppp/8/8/8/8/Q7/K7 w - - 0 1", ("a2f7", "g8h8", "f7g8", "h8g8", "d7e8")),
+    (2, "7k/6pp/7Q/8/8/Q7/8/K7 w - - 0 1", ("a3c3", "h8g8", "c3c8", "g8f7", "h6e6")),
+    (2, "k7/pp6/8/8/8/5Q2/Q7/K7 w - - 0 1", ("a2a6", "a8b8", "f3f8", "b8c7", "a6d6")),
+    (2, "1k6/ppp5/8/8/8/Q7/Q7/K7 w - - 0 1", ("a3a7", "b8c8", "a2e6", "c8d8", "a7b8")),
+    (2, "2k5/1ppp4/8/1Q6/Q7/8/8/K7 w - - 0 1", ("b5d7", "c8b8", "d7c8", "b8c8", "a4e8")),
+    (2, "3k4/2ppp3/8/8/1Q6/Q7/8/K7 w - - 0 1", ("b4e7", "d8c8", "a3a6", "c8b8", "e7f8")),
+    (2, "6k1/4Qppp/8/8/8/8/Q7/K7 w - - 0 1", ("a2f7", "g8h8", "f7g8", "h8g8", "e7e8")),
+    (2, "7k/6pp/7Q/Q7/8/8/8/K7 w - - 0 1", ("a5c3", "h8g8", "c3c8", "g8f7", "h6e6")),
+    (2, "k7/pp6/Q7/8/8/Q7/8/K7 w - - 0 1", ("a3f3", "a8b8", "f3f8", "b8c7", "a6d6")),
+    (2, "1k6/ppp5/8/8/8/Q7/Q7/K7 w - - 0 1", ("a3a7", "b8c8", "a2e6", "c8d8", "a7a8")),
+    (2, "2k5/1ppp4/2Q5/8/Q7/8/8/K7 w - - 0 1", ("c6d7", "c8b8", "d7c8", "b8c8", "a4e8")),
+    (2, "3k4/2ppp3/8/8/1Q6/Q7/8/K7 w - - 0 1", ("b4e7", "d8c8", "a3a6", "c8b8", "e7e8")),
+    (2, "6k1/5ppp/6Q1/8/8/8/Q7/K7 w - - 0 1", ("a2f7", "g8h8", "f7g8", "h8g8", "g6e8")),
+    (2, "7k/6pp/Q7/8/8/2Q5/8/K7 w - - 0 1", ("a6h6", "h8g8", "c3c8", "g8f7", "h6e6")),
+    (2, "k7/pp6/8/8/8/Q4Q2/8/K7 w - - 0 1", ("a3a6", "a8b8", "f3f8", "b8c7", "a6d6")),
+    (2, "1k6/ppp5/8/8/8/Q7/Q7/K7 w - - 0 1", ("a3a7", "b8c8", "a2e6", "c8d8", "a7d4")),
+    (2, "2k5/1ppp4/8/8/Q7/8/3Q4/K7 w - - 0 1", ("a4d7", "c8b8", "d7e8", "b8a7", "d2a5")),
+    (2, "3k4/2ppp3/8/8/1Q6/Q7/8/K7 w - - 0 1", ("b4e7", "d8c8", "a3a6", "c8b8", "e7d8")),
+    (2, "6k1/5ppp/8/7Q/8/8/Q7/K7 w - - 0 1", ("a2f7", "g8h8", "f7g8", "h8g8", "h5e8")),
+    (2, "7k/6pp/7Q/8/8/8/1Q6/K7 w - - 0 1", ("b2c3", "h8g8", "c3c8", "g8f7", "h6e6")),
+    (2, "k7/pp6/8/8/Q7/5Q2/8/K7 w - - 0 1", ("a4a6", "a8b8", "f3f8", "b8c7", "a6d6")),
+    (2, "1k6/ppp5/8/8/Q7/8/Q7/K7 w - - 0 1", ("a4a7", "b8c8", "a2e6", "c8d8", "a7b8")),
+    (2, "2k5/1ppp4/8/8/Q7/8/3Q4/K7 w - - 0 1", ("a4d7", "c8b8", "d7d8", "b8a7", "d2a5")),
+    (2, "3k4/2ppp3/8/8/1Q6/Q7/8/K7 w - - 0 1", ("b4e7", "d8c8", "a3a6", "c8b8", "e7b4")),
+    (2, "6k1/Q4ppp/6Q1/8/8/8/8/K7 w - - 0 1", ("a7f7", "g8h8", "f7g8", "h8g8", "g6e8")),
+    (2, "7k/6pp/7Q/8/8/1Q6/8/K7 w - - 0 1", ("b3c3", "h8g8", "c3c8", "g8f7", "h6e6")),
+    (2, "k7/pp6/8/Q7/8/5Q2/8/K7 w - - 0 1", ("a5a6", "a8b8", "f3f8", "b8c7", "a6d6")),
+    (2, "1k6/ppp5/8/8/Q7/8/Q7/K7 w - - 0 1", ("a4a7", "b8c8", "a2e6", "c8d8", "a7a8")),
+    (2, "2k5/1ppp4/8/8/Q7/8/3Q4/K7 w - - 0 1", ("d2d7", "c8b8", "d7c8", "b8c8", "a4e8")),
+    (2, "3k4/2ppp3/8/2Q5/8/Q7/8/K7 w - - 0 1", ("c5e7", "d8c8", "a3a6", "c8b8", "e7f8")),
+    (2, "6k1/Q4ppp/8/7Q/8/8/8/K7 w - - 0 1", ("a7f7", "g8h8", "f7g8", "h8g8", "h5e8")),
+    (2, "7k/6pp/7Q/8/1Q6/8/8/K7 w - - 0 1", ("b4c3", "h8g8", "c3c8", "g8f7", "h6e6")),
+    (2, "k7/pp6/Q7/8/8/1Q6/8/K7 w - - 0 1", ("b3f3", "a8b8", "f3f8", "b8c7", "a6d6")),
+    (2, "1k6/ppp5/8/8/Q7/8/Q7/K7 w - - 0 1", ("a4a7", "b8c8", "a2e6", "c8d8", "a7d4")),
+    (2, "2k5/1ppp4/8/8/Q7/3Q4/8/K7 w - - 0 1", ("d3d7", "c8b8", "d7c8", "b8c8", "a4e8")),
+    (2, "3k4/2ppp3/8/2Q5/8/Q7/8/K7 w - - 0 1", ("c5e7", "d8c8", "a3a6", "c8b8", "e7e8")),
+    (2, "6k1/3Q1ppp/8/8/8/1Q6/8/K7 w - - 0 1", ("b3f7", "g8h8", "f7g8", "h8g8", "d7e8")),
+    (2, "7k/6pp/1Q6/8/8/2Q5/8/K7 w - - 0 1", ("b6h6", "h8g8", "c3c8", "g8f7", "h6e6")),
+    (2, "k7/pp6/Q7/8/8/2Q5/8/K7 w - - 0 1", ("c3f3", "a8b8", "f3f8", "b8c7", "a6d6")),
+    (2, "1k6/ppp5/8/Q7/8/8/Q7/K7 w - - 0 1", ("a5a7", "b8c8", "a2e6", "c8d8", "a7b8")),
+    (
+        3,
+        "6k1/5ppp/8/8/8/3Q4/2Q5/K7 w - - 0 1",
+        ("d3h7", "g8f8", "c2c5", "f8e8", "h7h8", "e8d7", "h8c8"),
+    ),
+    (
+        3,
+        "7k/6pp/7Q/8/8/Q7/8/K7 w - - 0 1",
+        ("a3c3", "h8g8", "c3c8", "g8f7", "c8e6", "f7f8", "h6f4"),
+    ),
+    (
+        3,
+        "k7/pp6/8/8/8/5Q2/Q7/K7 w - - 0 1",
+        ("a2a6", "a8b8", "f3f8", "b8c7", "f8d6", "c7c8", "a6c4"),
+    ),
+    (
+        3,
+        "1k6/ppp5/8/8/8/Q7/Q7/K7 w - - 0 1",
+        ("a3a7", "b8c8", "a7a8", "c8d7", "a2d5", "d7e7", "a8d8"),
+    ),
+    (
+        3,
+        "2k5/1ppp4/8/8/Q7/3Q4/8/K7 w - - 0 1",
+        ("a4d7", "c8b8", "d7d8", "b8a7", "d8c7", "a7a8", "d3a3"),
+    ),
+    (
+        3,
+        "3k4/2ppp3/8/8/1Q6/Q7/8/K7 w - - 0 1",
+        ("b4e7", "d8c8", "e7f8", "c8b7", "f8a8", "b7b6", "a8a6"),
+    ),
+    (
+        3,
+        "6k1/5ppp/8/8/8/3Q4/2Q5/K7 w - - 0 1",
+        ("d3h7", "g8f8", "c2c5", "f8e8", "h7g8", "e8d7", "g8c8"),
+    ),
+    (
+        3,
+        "7k/6pp/7Q/Q7/8/8/8/K7 w - - 0 1",
+        ("a5c3", "h8g8", "c3c8", "g8f7", "c8e6", "f7f8", "h6f4"),
+    ),
+    (
+        3,
+        "k7/pp6/Q7/8/8/Q7/8/K7 w - - 0 1",
+        ("a3f3", "a8b8", "f3f8", "b8c7", "f8d6", "c7c8", "a6c4"),
+    ),
+    (
+        3,
+        "1k6/ppp5/8/8/Q7/8/Q7/K7 w - - 0 1",
+        ("a4a7", "b8c8", "a7a8", "c8d7", "a2d5", "d7e7", "a8d8"),
+    ),
+    (
+        3,
+        "2k5/1ppp4/3Q4/8/Q7/8/8/K7 w - - 0 1",
+        ("a4d7", "c8b8", "d7e8", "b8a7", "e8a4", "a7b8", "d6f8"),
+    ),
+    (
+        3,
+        "3k4/2ppp3/8/8/1Q6/Q7/8/K7 w - - 0 1",
+        ("b4e7", "d8c8", "e7f8", "c8b7", "f8a8", "b7b6", "a3a5"),
+    ),
+    (
+        3,
+        "6k1/5ppp/8/8/4Q3/8/2Q5/K7 w - - 0 1",
+        ("e4h7", "g8f8", "c2c5", "f8e8", "h7h8", "e8d7", "h8c8"),
+    ),
+    (
+        3,
+        "7k/6pp/Q7/8/8/2Q5/8/K7 w - - 0 1",
+        ("a6h6", "h8g8", "c3c8", "g8f7", "c8e6", "f7f8", "h6f4"),
+    ),
+    (
+        3,
+        "k7/pp6/8/8/8/Q4Q2/8/K7 w - - 0 1",
+        ("a3a6", "a8b8", "f3f8", "b8c7", "f8d6", "c7c8", "a6c4"),
+    ),
+    (
+        3,
+        "1k6/ppp5/8/Q7/8/8/Q7/K7 w - - 0 1",
+        ("a5a7", "b8c8", "a7a8", "c8d7", "a2d5", "d7e7", "a8d8"),
+    ),
+    (
+        3,
+        "2k5/1ppp4/3Q4/8/Q7/8/8/K7 w - - 0 1",
+        ("a4d7", "c8b8", "d7e8", "b8a7", "e8a4", "a7b8", "d6d8"),
+    ),
+    (
+        3,
+        "3k4/2ppp3/8/8/1Q6/Q7/8/K7 w - - 0 1",
+        ("b4e7", "d8c8", "e7f8", "c8b7", "f8a8", "b7b6", "a3b4"),
+    ),
+    (
+        3,
+        "6k1/5ppp/8/8/4Q3/8/2Q5/K7 w - - 0 1",
+        ("e4h7", "g8f8", "c2c5", "f8e8", "h7g8", "e8d7", "g8c8"),
+    ),
+    (
+        3,
+        "7k/6pp/7Q/8/8/8/1Q6/K7 w - - 0 1",
+        ("b2c3", "h8g8", "c3c8", "g8f7", "c8e6", "f7f8", "h6f4"),
+    ),
+    (
+        3,
+        "k7/pp6/8/8/Q7/5Q2/8/K7 w - - 0 1",
+        ("a4a6", "a8b8", "f3f8", "b8c7", "f8d6", "c7c8", "a6c4"),
+    ),
+    (
+        3,
+        "1k6/ppp5/Q7/8/8/8/Q7/K7 w - - 0 1",
+        ("a6a7", "b8c8", "a7a8", "c8d7", "a2d5", "d7e7", "a8d8"),
+    ),
+    (
+        3,
+        "2k5/1ppp4/3Q4/8/Q7/8/8/K7 w - - 0 1",
+        ("a4d7", "c8b8", "d7e8", "b8a7", "d6c7", "a7a6", "e8a4"),
+    ),
+    (
+        3,
+        "3k4/2ppp3/8/8/1Q6/Q7/8/K7 w - - 0 1",
+        ("b4e7", "d8c8", "e7f8", "c8b7", "a3a8", "b7b6", "f8b4"),
+    ),
+    (
+        3,
+        "6k1/5ppp/8/5Q2/8/8/2Q5/K7 w - - 0 1",
+        ("f5h7", "g8f8", "c2c5", "f8e8", "h7h8", "e8d7", "h8c8"),
+    ),
+    (
+        3,
+        "7k/6pp/7Q/8/8/1Q6/8/K7 w - - 0 1",
+        ("b3c3", "h8g8", "c3c8", "g8f7", "c8e6", "f7f8", "h6f4"),
+    ),
+    (
+        3,
+        "k7/pp6/8/Q7/8/5Q2/8/K7 w - - 0 1",
+        ("a5a6", "a8b8", "f3f8", "b8c7", "f8d6", "c7c8", "a6c4"),
+    ),
+    (
+        3,
+        "1k6/ppp5/1Q6/8/8/8/Q7/K7 w - - 0 1",
+        ("b6a7", "b8c8", "a7a8", "c8d7", "a2d5", "d7e7", "a8d8"),
+    ),
+    (
+        3,
+        "2k5/1ppp4/3Q4/8/Q7/8/8/K7 w - - 0 1",
+        ("a4d7", "c8b8", "d7d8", "b8a7", "d8c7", "a7a8", "c7b8"),
+    ),
+    (
+        3,
+        "3k4/2ppp3/8/8/1Q6/Q7/8/K7 w - - 0 1",
+        ("b4e7", "d8c8", "e7e8", "c8b7", "e8a8", "b7b6", "a8a6"),
+    ),
+    (
+        3,
+        "6k1/5ppp/8/5Q2/8/8/2Q5/K7 w - - 0 1",
+        ("f5h7", "g8f8", "c2c5", "f8e8", "h7g8", "e8d7", "g8c8"),
+    ),
+    (
+        3,
+        "7k/6pp/7Q/8/1Q6/8/8/K7 w - - 0 1",
+        ("b4c3", "h8g8", "c3c8", "g8f7", "c8e6", "f7f8", "h6f4"),
+    ),
+    (
+        3,
+        "k7/pp6/R7/Q7/8/8/8/K7 w - - 0 1",
+        ("a6a7", "a8b8", "a5b6", "b8c8", "b6b7", "c8d8", "b7b8"),
+    ),
+    (
+        3,
+        "1k6/ppp5/8/2Q5/8/8/Q7/K7 w - - 0 1",
+        ("c5a7", "b8c8", "a7a8", "c8d7", "a2d5", "d7e7", "a8d8"),
+    ),
+    (
+        3,
+        "2k5/1ppp4/3Q4/8/Q7/8/8/K7 w - - 0 1",
+        ("a4d7", "c8b8", "d7d8", "b8a7", "d8c7", "a7a8", "c7a5"),
+    ),
+    (
+        3,
+        "3k4/2ppp3/8/8/1Q6/Q7/8/K7 w - - 0 1",
+        ("b4e7", "d8c8", "e7e8", "c8b7", "e8a8", "b7b6", "a3a5"),
+    ),
+    (
+        3,
+        "6k1/5ppp/6Q1/8/8/8/2Q5/K7 w - - 0 1",
+        ("g6h7", "g8f8", "c2c5", "f8e8", "h7h8", "e8d7", "h8c8"),
+    ),
+    (
+        3,
+        "7k/6pp/1Q6/8/8/2Q5/8/K7 w - - 0 1",
+        ("b6h6", "h8g8", "c3c8", "g8f7", "c8e6", "f7f8", "h6f4"),
+    ),
+    (
+        3,
+        "k7/pp6/R7/Q7/8/8/8/K7 w - - 0 1",
+        ("a6a7", "a8b8", "a5b6", "b8c8", "b6b7", "c8d8", "b7a8"),
+    ),
+    (
+        3,
+        "1k6/ppp5/8/2Q5/8/8/Q7/K7 w - - 0 1",
+        ("a2a7", "b8c8", "a7a8", "c8d7", "c5d5", "d7e7", "a8d8"),
+    ),
+)
+
+_SEQUENCE_WHY = (
+    "Every defensive reply is forced: each check leaves the king exactly one "
+    "square, so the whole line is known in advance. Find your move at each turn "
+    "and the mate arrives on its own — this is how a combination is counted, one "
+    "forced ply at a time."
+)
+
+
+def _sequence_drills() -> Iterator[Drill]:
+    """Build the multi-move set from the seed table; ``verify`` is the proof.
+
+    One puzzle per position: the seed table has a few repeated start FENs with
+    different lines, and shipping two keys for the same board would mean the same
+    position grading a different move 'wrong'. Keep the first verified line per FEN.
+    """
+    per_level: dict[int, list[Drill]] = {1: [], 2: [], 3: []}
+    seen_fens: set[str] = set()
+    for level, fen, line in _SEQUENCE_SEEDS:
+        if fen in seen_fens:
+            continue
+        drill = Drill(
+            key=f"gen-sequence-{level}-{len(per_level[level])}",
+            theme="sequence",
+            name=THEME_NAMES["sequence"],
+            level=level,
+            fen=fen,
+            solution=line[0],
+            line=tuple(line[1:]),
+            moves=tuple(line),
+            prompt=_PROMPT["sequence"],
+            why=_SEQUENCE_WHY,
+        )
+        if verify(drill) is None:
+            seen_fens.add(fen)
+            per_level[level].append(drill)
+    for level in (1, 2, 3):
+        yield from per_level[level]
+
+
 # --- Assembly --------------------------------------------------------------
 
 
@@ -655,6 +990,7 @@ _PROMPT = {
     "endgame": "Make the pawn a queen.",
     "skewer": "Check the king, then take what hides behind it.",
     "discovered": "One move unmasks another. Win material.",
+    "sequence": "Play the whole forced line — each reply is forced.",
 }
 
 
@@ -673,4 +1009,5 @@ def generated_drills() -> tuple[Drill, ...]:
     drills: list[Drill] = []
     for name, source in sources.items():
         drills.extend(_theme_drills(name, source))
+    drills.extend(_sequence_drills())
     return tuple(drills)

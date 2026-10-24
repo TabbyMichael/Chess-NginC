@@ -43,6 +43,7 @@ describe('themeOrder', () => {
       skewer: progress(),
       discovered: progress(),
       backrank: progress(),
+      sequence: progress(),
     };
     expect(themeOrder(themes)).toEqual([
       'mate',
@@ -53,6 +54,7 @@ describe('themeOrder', () => {
       'discovered',
       'backrank',
       'endgame',
+      'sequence',
     ]);
   });
 
@@ -67,6 +69,7 @@ describe('themeIdea', () => {
     expect(themeIdea('mate')).not.toBe('');
     expect(themeIdea('skewer')).not.toBe('');
     expect(themeIdea('discovered')).not.toBe('');
+    expect(themeIdea('sequence')).not.toBe('');
   });
 
   it('returns an empty string for an unknown theme', () => {

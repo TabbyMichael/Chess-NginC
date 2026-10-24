@@ -258,6 +258,7 @@ class PuzzleResponse(BaseModel):
     source: str  # 'drill' | 'game'
     game_id: int | None = None  # set for mined puzzles, to link back to the review
     ply: int | None = None
+    player_moves: int = 1  # how many own moves to play; >1 marks a multi-move puzzle
 
 
 class TrainingAttemptRequest(BaseModel):
@@ -266,6 +267,8 @@ class TrainingAttemptRequest(BaseModel):
     key: str = Field(min_length=1, max_length=64)
     uci: str = Field(default="", min_length=0, max_length=10)
     reveal: bool = False  # "Show me": records a no-credit attempt, gives the answer
+    # Cumulative own-moves played so far, for multi-move puzzles; empty for singles.
+    moves: list[str] = Field(default_factory=list, max_length=16)
 
 
 class TrainingAttemptResponse(BaseModel):
@@ -279,6 +282,10 @@ class TrainingAttemptResponse(BaseModel):
     continuation: list[str] = Field(default_factory=list)
     points_awarded: int = 0
     unlocked_achievements: list[AchievementResponse] = Field(default_factory=list)
+    # Multi-move stepper fields; a single-move verdict is always terminal.
+    complete: bool = True
+    position_fen: str = ""
+    played_san: list[str] = Field(default_factory=list)
 
 
 class MinePuzzleResponse(BaseModel):

@@ -7,6 +7,7 @@ and the ramp raises after three correct / drops after two wrong.
 
 from __future__ import annotations
 
+import chess
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -15,10 +16,16 @@ from sqlalchemy.orm import Session
 from app.models.point_award import PointAward
 from app.training import service
 from app.training.drills import DRILLS
+from app.training.models import TrainingAttempt
 from app.training.verify import VALID_THEMES
 
 MATE_1 = next(d for d in DRILLS if d.key == "mate-1")  # sol a1a8, fen back-rank mate
 WRONG_LEGAL = "a1a2"  # legal rook move in mate-1's position, but not the mate
+
+# A two-move sequence (three plies: own, forced reply, own mate) is the simplest
+# multi-move puzzle to drive the stepper through in tests.
+SEQ = next(d for d in DRILLS if d.theme == "sequence" and len(d.moves) == 3)
+SEQ_PLAYER_MOVES = list(SEQ.moves[0::2])  # the own-moves the player must replay
 
 
 def _points(client: TestClient) -> int:
@@ -31,6 +38,22 @@ def _attempt(client: TestClient, key: str, uci: str, reveal: bool = False) -> di
     resp = client.post("/api/v1/training/attempts", json={"key": key, "uci": uci, "reveal": reveal})
     assert resp.status_code == 200, resp.text
     return resp.json()
+
+
+def _attempt_moves(client: TestClient, key: str, moves: list[str]) -> dict:
+    resp = client.post("/api/v1/training/attempts", json={"key": key, "moves": moves})
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def _seq_rows(db: Session, user_id: int) -> list[TrainingAttempt]:
+    return list(
+        db.execute(
+            select(TrainingAttempt).where(
+                TrainingAttempt.user_id == user_id, TrainingAttempt.puzzle_key == SEQ.key
+            )
+        ).scalars()
+    )
 
 
 # --- Puzzle payload is answer-free -----------------------------------------
@@ -205,3 +228,67 @@ def test_three_correct_raises_level_two_wrong_lowers(
     _attempt(client, MATE_1.key, WRONG_LEGAL)
     _attempt(client, MATE_1.key, WRONG_LEGAL)
     assert service.summary(db, user_id)["themes"]["mate"]["level"] == 1
+
+
+# --- Multi-move sequence stepper ------------------------------------------
+
+
+def test_sequence_puzzle_exposes_move_count_but_no_answer(
+    authed_client: tuple[TestClient, dict],
+) -> None:
+    client, _ = authed_client
+    body = client.get("/api/v1/training/puzzle", params={"theme": "sequence"}).json()
+    assert body["theme"] == "sequence"
+    assert body["player_moves"] >= 2  # multi-move by construction
+    for banned in ("solution", "alternatives", "line", "moves"):
+        assert banned not in body, f"{banned} leaked to the client"
+
+
+def test_sequence_first_ply_is_in_progress_and_logs_nothing(
+    authed_client: tuple[TestClient, dict], db: Session
+) -> None:
+    client, body = authed_client
+    result = _attempt_moves(client, SEQ.key, SEQ_PLAYER_MOVES[:1])
+    assert result["complete"] is False
+    assert result["solved"] is False
+    assert result["position_fen"]  # board after the scripted forced reply
+    assert result["played_san"] == [result["played_san"][0]]  # just the one ply
+    assert result["solution_san"] == ""  # answer withheld mid-run
+    assert result["points_awarded"] == 0
+    assert _seq_rows(db, int(body["id"])) == []  # nothing logged until resolved
+
+
+def test_sequence_full_line_solves_with_one_row(
+    authed_client: tuple[TestClient, dict], db: Session
+) -> None:
+    client, body = authed_client
+    result = _attempt_moves(client, SEQ.key, SEQ_PLAYER_MOVES)
+    assert result["complete"] is True
+    assert result["solved"] is True
+    assert result["solution_san"]  # revealed on completion
+    assert result["points_awarded"] == 7  # drill (2) + first sequence-theme clear (5)
+    assert _points(client) == 7
+    rows = _seq_rows(db, int(body["id"]))
+    assert len(rows) == 1 and rows[0].solved is True
+
+
+def test_sequence_wrong_ply_fails_reveals_and_logs_one(
+    authed_client: tuple[TestClient, dict], db: Session
+) -> None:
+    client, body = authed_client
+    board = chess.Board(SEQ.fen)
+    wrong = next(m.uci() for m in board.legal_moves if m.uci() != SEQ.moves[0])
+    result = _attempt_moves(client, SEQ.key, [wrong])
+    assert result["complete"] is True
+    assert result["solved"] is False
+    assert result["solution_san"]  # the line is shown honestly
+    assert result["points_awarded"] == 0
+    assert _points(client) == 0
+    rows = _seq_rows(db, int(body["id"]))
+    assert len(rows) == 1 and rows[0].solved is False
+
+
+def test_sequence_illegal_ply_is_422(authed_client: tuple[TestClient, dict]) -> None:
+    client, _ = authed_client
+    resp = client.post("/api/v1/training/attempts", json={"key": SEQ.key, "moves": ["e2e4"]})
+    assert resp.status_code == 422, resp.text
