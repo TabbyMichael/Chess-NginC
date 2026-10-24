@@ -1509,6 +1509,80 @@ html[data-theme='dark'] .captured-piece {
   font-size: 0.85rem;
   color: var(--accent);
 }
+
+/* ---------- review tour: navigation, opening + odds (REVIEW-007/008) ---- */
+
+/* First / prev / counter / next / last under the replay board. */
+.review-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.review-nav .nav-btn {
+  padding: 0.35rem 0.5rem;
+}
+.review-nav-count {
+  min-width: 7.5rem;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+.review-opening {
+  display: grid;
+  gap: var(--space-2);
+}
+.review-opening-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+}
+.opening-eco {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+}
+.book-badge {
+  margin-left: auto;
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--ink-soft);
+}
+.book-badge.in-book {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.review-odds {
+  display: grid;
+  gap: var(--space-1);
+}
+.odds-bar {
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.odds-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 120ms ease-out;
+}
+.review-opening-note {
+  font-size: 0.75rem;
+  margin: var(--space-1) 0 0;
+}
 .eval-graph svg {
   display: block;
   width: 100%;
@@ -1893,4 +1967,122 @@ html[data-theme='dark'] .captured-piece {
     bottom: var(--space-3);
     max-width: none;
   }
+}
+
+/* ---------- Learn: themed drills + own-game puzzles (LEARN-002/003/004) -- */
+
+.learn-page {
+  display: grid;
+  gap: var(--space-5);
+}
+.learn-header h1 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+}
+.learn-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--space-4);
+}
+.skill-card {
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+}
+.skill-count {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+}
+.skill-count .badge {
+  margin-left: auto;
+}
+.progress-bar {
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 120ms ease-out;
+}
+.drill-panel {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(240px, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+@media (max-width: 720px) {
+  .drill-panel {
+    grid-template-columns: 1fr;
+  }
+}
+.drill-side {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+}
+.drill-prompt {
+  margin: 0;
+  font-weight: 600;
+}
+.drill-banner {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-weight: 600;
+}
+.drill-banner.solved {
+  background: var(--accent-soft);
+  color: var(--success);
+}
+.drill-answer {
+  margin: 0;
+}
+.drill-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.mine-strip .mine-list {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+.mine-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.mine-item:hover {
+  background: var(--surface-2);
+}
+
+/* ---------- review thinking loader (REV-005) ---------------------------- */
+
+.review-thinking {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
 }

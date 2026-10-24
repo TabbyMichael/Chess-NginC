@@ -47,6 +47,45 @@ export function sideToMove(fen: string): 'w' | 'b' {
   return fen.split(' ')[1] === 'b' ? 'b' : 'w';
 }
 
+/** True when the side to move in `fen` is in check (display highlight only). */
+export function isCheck(fen: string): boolean {
+  try {
+    return new Chess(fen).inCheck();
+  } catch {
+    return false;
+  }
+}
+
+/** UCI 'e2e4' / 'e7e8q' → the {from,to,promotion} shape chess.js moves with. */
+function uciToObject(uci: string): { from: string; to: string; promotion?: string } {
+  const from = uci.slice(0, 2);
+  const to = uci.slice(2, 4);
+  const promotion = uci.length > 4 ? uci.slice(4, 5) : undefined;
+  return promotion ? { from, to, promotion } : { from, to };
+}
+
+/**
+ * Replay a recorded game forward from the standard start position, returning
+ * the FEN reached after each ply (display-only). This is the same FEN-forward
+ * walk the server and `lib/game-events.ts` do: the API's game detail carries
+ * only `{uci, san, move_number}` with no per-ply FEN, so a board that wants the
+ * sequence rebuilds it. Any illegal or unparsable step yields `[]` rather than
+ * throwing, so a corrupt move list becomes a static board, never a crash.
+ */
+export function forwardFens(moves: { uci: string }[]): string[] {
+  const game = new Chess();
+  const fens: string[] = [];
+  for (const move of moves) {
+    try {
+      game.move(uciToObject(move.uci));
+    } catch {
+      return [];
+    }
+    fens.push(game.fen());
+  }
+  return fens;
+}
+
 /**
  * Squares the piece on `square` could legally move to — a UX preview only
  * (dots on empty targets, rings on captures). Returns [] for unparsable

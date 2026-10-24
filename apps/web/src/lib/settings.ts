@@ -1,17 +1,19 @@
 /**
- * User UX preferences (sound + haptics), persisted in localStorage.
- * Kept framework-free so the audio/haptic layers and the React toggles share
- * one source of truth. A `change` event lets components re-render on toggle.
+ * User UX preferences (sound, haptics, spoken narration), persisted in
+ * localStorage.
+ * Kept framework-free so the audio/haptic/speech layers and the React toggles
+ * share one source of truth. A `change` event lets components re-render on
+ * toggle.
  */
 
-export type PrefKey = 'sound' | 'haptics';
+export type PrefKey = 'sound' | 'haptics' | 'voice';
 
 const STORAGE_KEY = 'chess.preferences';
 const CHANGE_EVENT = 'chess:preferences';
 
-type Prefs = { sound: boolean; haptics: boolean };
+type Prefs = { sound: boolean; haptics: boolean; voice: boolean };
 
-const DEFAULTS: Prefs = { sound: true, haptics: true };
+const DEFAULTS: Prefs = { sound: true, haptics: true, voice: true };
 
 function read(): Prefs {
   if (typeof localStorage === 'undefined') return { ...DEFAULTS };

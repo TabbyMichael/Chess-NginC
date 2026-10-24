@@ -32,6 +32,10 @@ def test_openapi_schema_valid(client: TestClient) -> None:
         "/api/v1/me/achievements",
         "/api/v1/me/achievements/new",
         "/api/v1/me/achievements/seen",
+        "/api/v1/training/summary",
+        "/api/v1/training/puzzle",
+        "/api/v1/training/mine",
+        "/api/v1/training/attempts",
     ]:
         assert path in paths, f"missing {path}"
     # Every operation has a response model; mutating routes declare errors.

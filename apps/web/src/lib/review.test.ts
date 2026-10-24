@@ -1,14 +1,19 @@
-/** Review helper tests: grade metadata, eval formatting, graph geometry. */
+/** Review helper tests: grade metadata, eval formatting, graph geometry,
+ * opening naming and the win-expectancy point of view (REVIEW-008). */
 import { describe, expect, it } from 'vitest';
 
+import type { ReviewMoveResponse } from './api-types';
 import {
   QUALITY_META,
   QUALITY_ORDER,
   formatEval,
   graphCoordinates,
   graphPath,
+  openingAverage,
+  openingFamily,
   qualityMeta,
   uciSquares,
+  winPctFor,
 } from './review';
 
 describe('quality metadata', () => {
@@ -79,5 +84,64 @@ describe('uciSquares', () => {
     expect(uciSquares('e2e4')).toEqual({ from: 'e2', to: 'e4' });
     expect(uciSquares('e7e8q')).toEqual({ from: 'e7', to: 'e8' });
     expect(uciSquares('xx')).toBeNull();
+  });
+});
+
+describe('winPctFor', () => {
+  it('keeps a white perspective untouched', () => {
+    expect(winPctFor(76, 'w')).toBe(76);
+  });
+
+  it('mirrors the number for the player on black', () => {
+    expect(winPctFor(76, 'b')).toBe(24);
+  });
+
+  it('stays unknown when there is no expectancy to read', () => {
+    expect(winPctFor(null, 'w')).toBeNull();
+    expect(winPctFor(undefined, 'b')).toBeNull();
+  });
+});
+
+describe('openingFamily', () => {
+  it('takes the name before the first variation separator', () => {
+    expect(openingFamily('Sicilian Defense: Najdorf Variation, English Attack')).toBe(
+      'Sicilian Defense',
+    );
+  });
+
+  it('is the whole name when there is no separator, and empty when unnamed', () => {
+    expect(openingFamily('Ruy Lopez')).toBe('Ruy Lopez');
+    expect(openingFamily(null)).toBe('');
+    expect(openingFamily(undefined)).toBe('');
+  });
+});
+
+describe('openingAverage', () => {
+  function move(name: string | null, pct: number | null): ReviewMoveResponse {
+    return { opening_name: name, win_pct: pct } as ReviewMoveResponse;
+  }
+
+  it('means the plies that belong to the named opening', () => {
+    const moves = [
+      move('Ruy Lopez', 70),
+      move('Ruy Lopez: Morphy Defense', 60),
+      move('French Defense', 20),
+    ];
+    expect(openingAverage(moves, 'Ruy Lopez', 'w')).toBe(65);
+  });
+
+  it('reads the average from the same side the panel speaks for', () => {
+    const moves = [move('Ruy Lopez', 70), move('Ruy Lopez', 60)];
+    expect(openingAverage(moves, 'Ruy Lopez', 'b')).toBe(35);
+  });
+
+  it('is null with no family or no numbers to average', () => {
+    expect(openingAverage([move('Ruy Lopez', 70)], '', 'w')).toBeNull();
+    expect(openingAverage([move('Ruy Lopez', null)], 'Ruy Lopez', 'w')).toBeNull();
+    expect(openingAverage([], 'Ruy Lopez', 'w')).toBeNull();
+  });
+
+  it('ignores unnamed plies rather than guessing an opening', () => {
+    expect(openingAverage([move(null, 50)], 'Ruy Lopez', 'w')).toBeNull();
   });
 });

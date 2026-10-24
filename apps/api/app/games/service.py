@@ -21,8 +21,10 @@ from app.repositories.game_repository import GameRepository
 
 # Chess.com-style scoring for computer games: every recorded move earns a
 # point and the finished game earns a result bonus. Local hot-seat games
-# award nothing. In computer games the account owner plays White.
-POINT_RULES = {"move": 1, "win": 10, "draw": 5, "loss": 3}
+# award nothing. In computer games the account owner plays White. Training
+# awards are a deliberate side income: below a single game move so grinding
+# drills can never out-earn playing.
+POINT_RULES = {"move": 1, "win": 10, "draw": 5, "loss": 3, "drill": 2, "theme_clear": 5}
 
 
 @dataclass(frozen=True)
@@ -77,6 +79,60 @@ def require_not_online(game: GameRow) -> None:
         raise IllegalMoveRequestError("Use the online endpoints for online games")
 
 
+def _record(
+    db: Session,
+    user_id: int,
+    delta: int,
+    reason: str,
+    *,
+    game_id: int | None = None,
+    move_number: int | None = None,
+    slot_key: str | None = None,
+) -> bool:
+    """Insert one award, bump the running total, commit. Returns whether written.
+
+    Deduped on whichever identity applies: game move slots by
+    ``(game_id, 'move', move_number)``, gameless awards by ``(user_id, reason,
+    slot_key)``. Re-awarding a filled slot is a silent no-op (returns False), so
+    undo/replay and repeat solves cannot farm points.
+    """
+    if slot_key is not None:
+        existing = db.execute(
+            select(PointAward).where(
+                PointAward.user_id == user_id,
+                PointAward.reason == reason,
+                PointAward.slot_key == slot_key,
+            )
+        ).scalar_one_or_none()
+    elif game_id is not None and move_number is not None:
+        existing = db.execute(
+            select(PointAward).where(
+                PointAward.game_id == game_id,
+                PointAward.reason == "move",
+                PointAward.move_number == move_number,
+            )
+        ).scalar_one_or_none()
+    else:
+        existing = None
+    if existing is not None:
+        return False
+    db.add(
+        PointAward(
+            user_id=user_id,
+            game_id=game_id,
+            delta=delta,
+            reason=reason,
+            move_number=move_number,
+            slot_key=slot_key,
+        )
+    )
+    user = db.get(User, user_id)
+    if user is not None:
+        user.points += delta
+    db.commit()
+    return True
+
+
 def award_points(
     db: Session, user_id: int, game: GameRow, reason: str, move_number: int | None = None
 ) -> None:
@@ -86,30 +142,17 @@ def award_points(
     cannot farm extra points. Callers decide which games/modes earn points
     (shared by the computer and online services, online-plan §4).
     """
-    if move_number is not None:
-        existing = db.execute(
-            select(PointAward).where(
-                PointAward.game_id == game.id,
-                PointAward.reason == "move",
-                PointAward.move_number == move_number,
-            )
-        ).scalar_one_or_none()
-        if existing is not None:
-            return
+    _record(db, user_id, POINT_RULES[reason], reason, game_id=game.id, move_number=move_number)
+
+
+def award_ledger(db: Session, user_id: int, reason: str, slot_key: str) -> int:
+    """Award gameless points (a solved drill, a cleared theme), deduped on slot.
+
+    Returns the delta actually granted (0 when the slot had already been paid),
+    which the training service reports back so the reveal shows an honest number.
+    """
     delta = POINT_RULES[reason]
-    db.add(
-        PointAward(
-            user_id=user_id,
-            game_id=game.id,
-            delta=delta,
-            reason=reason,
-            move_number=move_number,
-        )
-    )
-    user = db.get(User, user_id)
-    if user is not None:
-        user.points += delta
-    db.commit()
+    return delta if _record(db, user_id, delta, reason, slot_key=slot_key) else 0
 
 
 def apply_and_store_move(

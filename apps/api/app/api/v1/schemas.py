@@ -100,7 +100,7 @@ class AchievementResponse(BaseModel):
     metric: str
     threshold: int
     tier: str  # bronze|silver|gold|diamond|legendary
-    group: str  # play|result|points|tactics|pieces|endurance|habit|review|engine|mode
+    group: str  # play|result|points|tactics|pieces|endurance|habit|review|engine|mode|training
 
 
 class GameResponse(BaseModel):
@@ -173,6 +173,14 @@ class ReviewMoveResponse(BaseModel):
     eval_cp: int = 0  # after the ply, from the MOVER's perspective
     eval_mate: int | None = None
     explanation: str = ""
+    # Derived on read, never stored: `app/reviews/annotate.py` resolves these
+    # from the theory book and the eval above (REVIEW-008 / ANL-004 / COA-004).
+    # Optional so reviews stored before they existed still validate.
+    opening_eco: str | None = None
+    opening_name: str | None = None
+    in_book: bool = False
+    # White's perspective, 1..99; flip it for a hero playing Black.
+    win_pct: int | None = None
 
 
 class ReviewEvalPoint(BaseModel):
@@ -217,3 +225,67 @@ class ReviewResponse(BaseModel):
     improvements: list[ReviewImprovement] = Field(default_factory=list)
     # A completed review is itself an achievement milestone (ACH-006).
     unlocked_achievements: list[AchievementResponse] = Field(default_factory=list)
+
+
+class TrainingThemeProgress(BaseModel):
+    """One skill card's numbers (LEARN-003)."""
+
+    label: str
+    solved: int
+    attempts: int
+    level: int  # 1..3 ramp rung to offer next
+    pct: float  # 0..1 completion of the theme's drills
+
+
+class TrainingSummaryResponse(BaseModel):
+    """The Learn page header: per-theme progress plus headline totals."""
+
+    themes: dict[str, TrainingThemeProgress] = Field(default_factory=dict)
+    puzzles_solved: int = 0
+    streak: int = 0
+    mine_available: int = 0
+
+
+class PuzzleResponse(BaseModel):
+    """A puzzle to attempt. Deliberately answer-free (never solution/line)."""
+
+    key: str
+    theme: str
+    name: str
+    level: int
+    fen: str
+    prompt: str
+    source: str  # 'drill' | 'game'
+    game_id: int | None = None  # set for mined puzzles, to link back to the review
+    ply: int | None = None
+
+
+class TrainingAttemptRequest(BaseModel):
+    """Submit a move, or ask to be shown the answer (LEARN-002)."""
+
+    key: str = Field(min_length=1, max_length=64)
+    uci: str = Field(default="", min_length=0, max_length=10)
+    reveal: bool = False  # "Show me": records a no-credit attempt, gives the answer
+
+
+class TrainingAttemptResponse(BaseModel):
+    """The verdict and the reveal — the answer only ever leaves the server here."""
+
+    solved: bool
+    solution_san: str
+    solution_from: str
+    solution_to: str
+    why: str
+    continuation: list[str] = Field(default_factory=list)
+    points_awarded: int = 0
+    unlocked_achievements: list[AchievementResponse] = Field(default_factory=list)
+
+
+class MinePuzzleResponse(BaseModel):
+    """One mined puzzle in the 'from your own games' list (no answer)."""
+
+    key: str
+    fen: str
+    prompt: str
+    game_id: int
+    ply: int

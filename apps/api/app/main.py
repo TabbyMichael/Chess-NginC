@@ -8,6 +8,7 @@ from app.api.v1.auth import router as auth_router
 from app.api.v1.games import router as games_router
 from app.api.v1.health import router as health_router
 from app.api.v1.online import router as online_router
+from app.api.v1.training import router as training_router
 from app.core.database import settings
 
 API_V1_PREFIX = "/api/v1"
@@ -28,6 +29,7 @@ app.include_router(auth_router, prefix=API_V1_PREFIX)
 app.include_router(games_router, prefix=API_V1_PREFIX)
 app.include_router(online_router, prefix=API_V1_PREFIX)
 app.include_router(achievements_router, prefix=API_V1_PREFIX)
+app.include_router(training_router, prefix=API_V1_PREFIX)
 
 
 @app.get("/")

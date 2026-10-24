@@ -14,6 +14,7 @@ import ThemeToggle from './components/ThemeToggle';
 import UserMenu from './components/UserMenu';
 import Dashboard from './pages/Dashboard';
 import GamePage from './pages/GamePage';
+import LearnPage from './pages/LearnPage';
 import LobbyPage from './pages/LobbyPage';
 import OnlineGamePage from './pages/OnlineGamePage';
 import ReviewPage from './pages/ReviewPage';
@@ -47,6 +48,12 @@ function Header() {
               className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
             >
               Play online
+            </NavLink>
+            <NavLink
+              to="/learn"
+              className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
+            >
+              Learn
             </NavLink>
             <NavLink
               to="/achievements"
@@ -117,6 +124,14 @@ export default function App() {
           element={
             <RequireAuth>
               <AchievementsPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/learn"
+          element={
+            <RequireAuth>
+              <LearnPage />
             </RequireAuth>
           }
         />

@@ -11,6 +11,7 @@ from app.models.point_award import PointAward
 from app.models.session import Session
 from app.models.user import User
 from app.models.user_achievement import UserAchievement
+from app.training.models import TrainingAttempt
 
 __all__ = [
     "User",
@@ -24,4 +25,5 @@ __all__ = [
     "PasswordResetToken",
     "PointAward",
     "UserAchievement",
+    "TrainingAttempt",
 ]

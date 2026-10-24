@@ -144,6 +144,14 @@ export interface ReviewMoveResponse {
   eval_cp: number;
   eval_mate?: number | null;
   explanation: string;
+  /** Derived on read from the offline theory book: null once out of all lines. */
+  opening_eco?: string | null;
+  opening_name?: string | null;
+  /** True when this exact ply is the position theory names; the name above
+   *  still carries the opening that got here once the book runs out. */
+  in_book?: boolean;
+  /** Engine win expectancy 1..99 for White; flip it for a hero playing Black. */
+  win_pct?: number | null;
 }
 
 export interface ReviewEvalPoint {
@@ -181,4 +189,67 @@ export interface ReviewResponse {
   improvements: ReviewImprovement[];
   /** Analysing a game is itself an achievement milestone (ACH-006). */
   unlocked_achievements?: AchievementResponse[];
+}
+
+// --- Training / Learn (LEARN-002/003/004/005) -----------------------------
+
+/** One skill card's numbers, as tracked server-side per theme. */
+export interface TrainingThemeProgress {
+  label: string;
+  solved: number;
+  attempts: number;
+  /** Ramp rung to offer next (1..3). */
+  level: number;
+  /** 0..1 completion of the theme's curated drills. */
+  pct: number;
+}
+
+export interface TrainingSummaryResponse {
+  themes: Record<string, TrainingThemeProgress>;
+  puzzles_solved: number;
+  streak: number;
+  mine_available: number;
+}
+
+/** A puzzle to attempt — deliberately answer-free (no solution/line). */
+export interface PuzzleResponse {
+  key: string;
+  theme: string;
+  name: string;
+  level: number;
+  fen: string;
+  prompt: string;
+  /** 'drill' (curated) | 'game' (mined from the player's own reviews). */
+  source: string;
+  /** Set for mined puzzles, so the card can link back to the source review. */
+  game_id?: number | null;
+  ply?: number | null;
+}
+
+export interface TrainingAttemptRequest {
+  key: string;
+  uci: string;
+  /** "Show me": records a no-credit attempt and reveals the answer. */
+  reveal?: boolean;
+}
+
+/** The verdict and the reveal — the answer only ever leaves the server here. */
+export interface TrainingAttemptResponse {
+  solved: boolean;
+  solution_san: string;
+  solution_from: string;
+  solution_to: string;
+  why: string;
+  continuation: string[];
+  points_awarded: number;
+  unlocked_achievements?: AchievementResponse[];
+}
+
+/** One mined puzzle in the "from your own games" list (no answer). */
+export interface MinePuzzleResponse {
+  key: string;
+  fen: string;
+  prompt: string;
+  game_id: number;
+  ply: number;
 }

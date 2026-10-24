@@ -10,6 +10,7 @@ from app.api.v1.schemas import (
     AchievementResponse,
     GameResponse,
     MoveResponse,
+    ReviewMoveResponse,
     ReviewResponse,
 )
 from app.games.errors import EngineUnavailableError
@@ -21,6 +22,7 @@ from app.games.service import (
     StaleVersionError,
 )
 from app.models.game_review import GameReview
+from app.reviews.annotate import annotate_moves
 from app.reviews.service import ReviewTargetError
 
 
@@ -50,8 +52,14 @@ def to_review_response(
     review: GameReview,
     unlocked: list[AchievementResponse] | None = None,
 ) -> ReviewResponse:
-    """Serialize a stored review row; the payload is unpacked defensively."""
+    """Serialize a stored review row; the payload is unpacked defensively.
+
+    Plies are annotated on the way out (opening name + win expectancy), so both
+    the cached GET and the fresh POST answer identically and reviews stored
+    before those fields existed gain them without re-analysis (REVIEW-008).
+    """
     payload = review.payload or {}
+    annotated = annotate_moves(payload.get("moves", []))
     return ReviewResponse(
         id=review.id,
         game_id=review.game_id,
@@ -62,7 +70,7 @@ def to_review_response(
         error=review.error,
         summary=payload.get("summary", {}),
         counts=payload.get("counts", {}),
-        moves=payload.get("moves", []),
+        moves=[ReviewMoveResponse.model_validate(move) for move in annotated],
         eval_graph=payload.get("eval_graph", []),
         improvements=payload.get("improvements", []),
         unlocked_achievements=list(unlocked or []),

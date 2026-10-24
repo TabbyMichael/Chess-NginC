@@ -392,6 +392,23 @@ LADDERS: tuple[Ladder, ...] = (
         (1, 3, 5, 10, 20, 35, 50, 100),
         {1: "Checkmated the Bot"},
     ),
+    # --- Training & drills ---------------------------------------------------
+    Ladder(
+        "puzzles_solved",
+        "training",
+        "Puzzle Solver",
+        "drills and puzzles solved",
+        (1, 5, 10, 20, 35, 50, 75, 100, 150, 200, 300),
+        {1: "First Solve"},
+    ),
+    Ladder(
+        "drill_streak",
+        "training",
+        "Sharp Streak",
+        "puzzles solved in a row",
+        (1, 3, 5, 10, 20, 30),
+        {1: "Warming Up", 10: "On a Roll"},
+    ),
 )
 
 
