@@ -37,7 +37,8 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index(op.f("ix_games_black_user_id"), table_name="games", if_exists=True)
     op.drop_index(op.f("ix_games_white_user_id"), table_name="games", if_exists=True)
-    op.drop_constraint("games_black_user_id_fkey", "games", type_="foreignkey", exists=True)
-    op.drop_constraint("games_white_user_id_fkey", "games", type_="foreignkey", exists=True)
+    # No explicit drop_constraint here: op.drop_constraint has no if_exists/exists
+    # kwarg (passing one raises TypeError), and PostgreSQL drops a column's
+    # foreign key automatically with the column, so removing the seats is enough.
     op.drop_column("games", "black_user_id")
     op.drop_column("games", "white_user_id")

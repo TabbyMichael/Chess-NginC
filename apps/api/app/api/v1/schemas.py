@@ -296,3 +296,53 @@ class MinePuzzleResponse(BaseModel):
     prompt: str
     game_id: int
     ply: int
+
+
+class AssistantAskRequest(BaseModel):
+    """A coach question about the reviewed game (Phase 11).
+
+    `focus_ply` is the ply the review cursor sits on; when it is None the
+    assistant resolves the focus from the question text or the player's worst
+    own error, so a bare question still lands somewhere useful.
+    """
+
+    question: str = Field(min_length=1, max_length=400)
+    focus_ply: int | None = Field(default=None, ge=1, le=100000)
+
+
+class AssistantReference(BaseModel):
+    """One move the answer is grounded in — always a real, cited ply."""
+
+    ply: int
+    san: str
+    color: str
+    note: str = ""
+    game_id: int | None = None
+
+
+class AssistantAnswerResponse(BaseModel):
+    """The coach's grounded answer, its intent, and the moves it cites."""
+
+    answer: str
+    intent: str  # summary|plan|alternatives|position|explain|patterns|opening|general
+    mode: str  # 'deterministic' (always available) | 'llm' (only when it stayed grounded)
+    provider: str
+    references: list[AssistantReference] = Field(default_factory=list)
+    position_fen: str = ""
+
+
+class CoachPattern(BaseModel):
+    """One opening family's error tally across the player's reviewed games."""
+
+    opening_family: str
+    mistakes: int
+    blunders: int
+    total_errors: int
+    avg_loss_cp: int
+
+
+class CoachPatternsResponse(BaseModel):
+    """The cross-game recall answer: a summary plus the counts it came from."""
+
+    summary: str = ""
+    items: list[CoachPattern] = Field(default_factory=list)

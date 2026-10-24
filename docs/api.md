@@ -162,6 +162,28 @@ for one player flip it (`winPctFor` in `apps/web/src/lib/review.ts`). No
 third-party population statistics are used anywhere, so nothing depends on an
 external host being reachable.
 
+## Coach assistant (all 🔒, Phase 11)
+
+Reached from the ⭐ beside "Where to improve" on the review page. Every answer is
+grounded in the caller's **own** reviewed game (long context) and, for cross-game
+questions, in a Postgres full-text index of their stored reviews plus the offline
+book (RAG). An OpenAI-compatible LLM is optional and env-gated (`ASSISTANT_API_KEY`);
+with no key the deterministic engine-grounded path answers, and any model reply
+that names a move it cannot cite is discarded in favour of that path (D13).
+
+| Endpoint | Behaviour |
+|----------|-----------|
+| `POST /games/{id}/assistant` | Body `{question (1..400), focus_ply? (≥1)}`. Answers a coaching question about the reviewed game. Same-origin + rate-limited per user (`ASSISTANT_RATE_LIMIT_PER_MINUTE`). → `200 AssistantAnswerResponse`; `404` unknown/foreign game; `409` no completed review; `422` bad body; `429` over budget |
+| `GET /games/{id}/assistant/patterns` | Cross-game recall: the openings where this player errs most. → `200 CoachPatternsResponse`; `404`/`409` as above |
+
+`AssistantAnswerResponse`: `answer`, `intent`
+(`summary`\|`plan`\|`alternatives`\|`position`\|`explain`\|`patterns`\|`opening`\|`general`),
+`mode` (`deterministic` always available, `llm` only when it stayed grounded),
+`provider`, `references[]` (`{ply, san, color, note, game_id}` — every move cited
+is a real ply the answer is grounded in), and `position_fen` (the board to show).
+`CoachPatternsResponse`: `summary` + `items[]`
+(`{opening_family, mistakes, blunders, total_errors, avg_loss_cp}`).
+
 ## Achievements (all 🔒, ACH-005..007)
 
 The catalog lives in code (`app/achievements/catalog.py`, 200+ ladder steps

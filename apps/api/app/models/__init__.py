@@ -1,5 +1,6 @@
 """Database models."""
 
+from app.ai.rag.models import CoachIndex
 from app.models.benchmark_result import BenchmarkResult
 from app.models.benchmark_run import BenchmarkRun
 from app.models.engine_run import EngineRun
@@ -26,4 +27,5 @@ __all__ = [
     "PointAward",
     "UserAchievement",
     "TrainingAttempt",
+    "CoachIndex",
 ]

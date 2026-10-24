@@ -22,9 +22,11 @@ import {
   ChevronsRight,
   RefreshCw,
   Sparkles,
+  Star,
 } from 'lucide-react';
 
 import Chessboard from '../components/Chessboard';
+import CoachAssistant from '../components/CoachAssistant';
 import EvalGraph from '../components/EvalGraph';
 import ReviewThinking from '../components/ReviewThinking';
 import VoiceToggle from '../components/VoiceToggle';
@@ -85,6 +87,8 @@ export default function ReviewPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedPly, setSelectedPly] = useState<number | null>(null);
+  // The coach assistant is a opt-in panel beside the review (Phase 11).
+  const [coachOpen, setCoachOpen] = useState(false);
 
   useEffect(() => {
     if (badId) return;
@@ -429,7 +433,19 @@ export default function ReviewPage() {
 
           <Card>
             <h2 className="card-title">
-              <Sparkles size={15} aria-hidden="true" /> Where to improve
+              <button
+                type="button"
+                className={`coach-star${coachOpen ? ' open' : ''}`}
+                onClick={() => setCoachOpen((v) => !v)}
+                aria-label="Coach assistant"
+                aria-pressed={coachOpen}
+                title="Ask the coach about this game"
+              >
+                <Star size={15} aria-hidden="true" />
+              </button>
+              <span className="coach-title-label">
+                <Sparkles size={15} aria-hidden="true" /> Where to improve
+              </span>
             </h2>
             {improvementsForHero.length === 0 ? (
               <p className="u-muted">
@@ -456,6 +472,17 @@ export default function ReviewPage() {
               </ol>
             )}
           </Card>
+
+          {coachOpen && (
+            <Card className="coach-card">
+              <CoachAssistant
+                gameId={gameId}
+                focusPly={selected ? selected.ply : null}
+                onSelectPly={setSelectedPly}
+                onClose={() => setCoachOpen(false)}
+              />
+            </Card>
+          )}
 
           <Card>
             <h2 className="card-title">Move-by-move classification</h2>

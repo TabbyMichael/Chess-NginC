@@ -20,6 +20,9 @@ _rate_buckets: defaultdict[str, list[float]] = defaultdict(list)
 # Separate bucket for online move submissions (online-plan §6.1), keyed by
 # user id — mirrors the auth limiter; same single-process caveat.
 _move_buckets: defaultdict[int, list[float]] = defaultdict(list)
+# Coach assistant asks (Phase 11), keyed by user id — an LLM/what-if question is
+# more expensive than a page read, so it gets its own budget. Same caveat.
+_assistant_buckets: defaultdict[int, list[float]] = defaultdict(list)
 
 
 def rate_limit_auth(request: Request) -> None:
@@ -41,6 +44,7 @@ def reset_rate_limits() -> None:
     """Clear rate-limit state (used by tests)."""
     _rate_buckets.clear()
     _move_buckets.clear()
+    _assistant_buckets.clear()
 
 
 def same_origin_ok(headers: Mapping[str, str]) -> bool:
@@ -121,3 +125,26 @@ def check_move_rate(user_id: int) -> None:
 def rate_limit_moves(current_user: Annotated[User, Depends(get_current_user)]) -> None:
     """REST dependency wrapper around :func:`check_move_rate`."""
     check_move_rate(current_user.id)
+
+
+def check_assistant_rate(user_id: int) -> None:
+    """Allow N coach-assistant asks per minute per user (Phase 11).
+
+    A question can trigger a live engine pass and (when configured) an LLM call,
+    so it is capped more tightly than ordinary reads. Mirrors :func:`check_move_rate`.
+    """
+    now = time.monotonic()
+    window_start = now - 60.0
+    hits = [t for t in _assistant_buckets[user_id] if t > window_start]
+    _assistant_buckets[user_id] = hits
+    if len(hits) >= settings.assistant_rate_limit_per_minute:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many questions. Please slow down.",
+        )
+    hits.append(now)
+
+
+def rate_limit_assistant(current_user: Annotated[User, Depends(get_current_user)]) -> None:
+    """REST dependency wrapper around :func:`check_assistant_rate`."""
+    check_assistant_rate(current_user.id)

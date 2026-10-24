@@ -1145,5 +1145,56 @@ forced-material sequence generation (the verifier already accepts a gain termina
 TD-019's engine-verified alternative-defence widening if a player reports a co-win marked
 wrong.
 
+---
+
+## Session 2026-10-24 (t) — Phase 11: Engine-grounded Coach Assistant (the ⭐)
+
+**Task.** Build the conversational coach reached from a ⭐ to the left of "Where to
+improve" on the review page. It answers five things — the positions, the best way to
+proceed, other ways the game could have gone (long-context over the stored review + a
+bounded live-MultiPV what-if pass), what the player keeps doing wrong across games, and
+opening theory (Postgres full-text RAG over a `coach_index` projection + the offline
+book). No pgvector/embeddings. An OpenAI-compatible LLM is optional, env-gated, and only
+rephrases cited facts behind a cite-only grounding guard with a deterministic fallback.
+
+**Files changed.**
+- Backend new: `app/ai/` (`provider.py`, `compose.py`, `service.py`), `app/ai/longcontext/`
+  (`context.py`, `whatif.py`), `app/ai/rag/` (`models.py`, `index.py`, `recall.py`),
+  `app/api/v1/assistant.py`, migration `alembic/versions/f6b1c8d2a9e4_coach_index.py`,
+  `scripts/index_reviews.py` (backfill), `app/ai/docs/*` (README/architecture/plan/checklist + SVG).
+- Backend edits: `core/database.py` (assistant_*/coach_* settings), `models/__init__.py`
+  (`CoachIndex`), `api/v1/{schemas,deps,main}.py`, `reviews/service.py` (best-effort
+  `index_review_safe` hook).
+- Frontend: `lib/api-types.ts` + `lib/api-client.ts` (`askCoach`/`coachPatterns`),
+  `components/CoachAssistant.tsx` (+ test), `pages/ReviewPage.tsx` (⭐ toggle), `styles.css`.
+- Docs: `docs/architecture.md` (D13 + `ai` module row), `docs/api.md` (Coach assistant),
+  `PROJECT_CHECKLIST.md` (Phase 11), `.env.example` (coach block), `TECHNICAL_DEBT_REGISTER.md`
+  (deferred semantic recall), `.github/workflows/ci.yml` (coach CI coverage).
+
+**Tests executed.**
+- `pytest tests/ai` → 40 passed; full `pytest` → **428 passed**; `ruff check/format app tests
+  scripts` clean; `mypy app` clean (86 files); `alembic upgrade head` + `alembic check` clean;
+  migration **round-trip** (upgrade→downgrade base→upgrade) verified on a throwaway DB.
+- Frontend `vitest run` → **243 passed** (5 new `CoachAssistant`, 1 new `ReviewPage` ⭐ test);
+  `tsc --noEmit`, `eslint`, `prettier --check`, `vite build` all clean.
+
+**Results.** The coach answers every intent offline: with no `ASSISTANT_API_KEY` and no
+engine binary the deterministic path returns grounded, cited answers; the FTS index and
+pattern recall were exercised against a real Postgres (generated `tsvector` column + GIN),
+and `to_tsvector('english', …)` confirmed IMMUTABLE on PG14 so the stored generated column
+is legal without any extension.
+
+**Defects discovered.** The new CI migration round-trip exposed a **latent pre-existing
+bug**: `a1c7e4f9b2d6_online_players.py` called `op.drop_constraint(..., exists=True)`, which
+raises `TypeError` on any `alembic downgrade` (no such kwarg). CI never caught it because it
+only ran `upgrade head`. Fixed by relying on PostgreSQL's automatic FK-with-column drop.
+
+**Decisions made.** D13 — long-context + Postgres-FTS RAG, no new dependency, optional LLM
+behind a cite-only guard; embeddings/pgvector deferred as the growth path.
+
+**Remaining / next task.** COACH-I4: a manual live-Docker curl through each intent on a real
+reviewed game (scoping/rate-limit/404 already proven by HTTP tests); optional semantic recall
+later if keyword FTS under-serves phrasing variety.
+
 
 

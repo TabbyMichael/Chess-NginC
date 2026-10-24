@@ -1,0 +1,48 @@
+# Runtime dependencies for the container image — pinned to the tested versions
+# (FND-013 locking applied to the build). pip install . used to float-resolve
+# every transitive here, and a slow PyPI read on the chess sdist failed a prod
+# build (2026-10-24). The Dockerfile installs this file with --no-deps, so the
+# build never resolves and every pin below is a wheel on cp312/manylinux.
+#
+# Dev gates still install from pyproject (requirements.lock); the versions here
+# match that lock except chess==1.10.0: the lock's 1.11.2 is sdist-only on PyPI
+# (no wheel), and 1.10.0 is the newest wheel release. Both satisfy
+# chess<2,>=1 and the full 428-test suite passes on 1.10.0.
+# cryptography/cffi/pycparser/charset-normalizer are the google-auth and
+# requests runtimes that requirements.lock omitted (they only hard-import on
+# Linux images, where a missing pin surfaces as ModuleNotFoundError).
+alembic==1.20.0
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.15.1
+bcrypt==5.0.0
+certifi==2026.7.22
+cffi==2.1.1
+charset-normalizer==3.5.2
+chess==1.10.0
+click==8.5.0
+cryptography==50.0.2
+fastapi==0.143.0
+google-auth==2.62.0
+h11==0.16.0
+idna==3.20
+Mako==1.4.3
+MarkupSafe==3.0.4
+opentelemetry-api==1.45.1
+psycopg==3.3.6
+psycopg-binary==3.3.6
+pyasn1==0.6.4
+pyasn1_modules==0.4.2
+pycparser==3.12
+pydantic==2.14.0
+pydantic-settings==2.15.0
+pydantic_core==2.50.0
+python-dotenv==1.2.4
+requests==2.34.2
+SQLAlchemy==2.1.4
+starlette==1.7.0
+typing-inspection==0.4.4
+typing_extensions==4.16.0
+urllib3==2.8.0
+uvicorn==0.54.0
+websockets==17.3

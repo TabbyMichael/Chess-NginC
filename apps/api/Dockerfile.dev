@@ -16,10 +16,14 @@ RUN apt-get update \
 
 WORKDIR /srv/api
 
-# Install runtime deps first for layer caching.
-COPY pyproject.toml README.md ./
+# Install runtime deps first for layer caching — pinned, wheel-only set shared
+# with the prod image (see requirements.txt); --no-deps keeps the build offline
+# to resolvers so a slow PyPI read cannot fail it.
+ENV PIP_DEFAULT_TIMEOUT=60
+COPY pyproject.toml README.md requirements.txt ./
+RUN pip install --no-cache-dir --no-deps --retries 5 -r requirements.txt
 COPY app ./app
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir --no-deps .
 
 # Migrations ship with the image; applied as a controlled deploy step (REL-006).
 COPY alembic ./alembic

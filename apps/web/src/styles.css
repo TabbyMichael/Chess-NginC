@@ -1731,6 +1731,167 @@ html[data-theme='dark'] .captured-piece {
   color: var(--ink-soft);
 }
 
+/* ---------- coach assistant (Phase 11) -------------------------------- */
+
+/* The ⭐ sits to the LEFT of the "Where to improve" title and reads as a
+   toggle, not a decorative glyph: it lights up while the panel is open. */
+.coach-star {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink-faint);
+  cursor: pointer;
+}
+.coach-star:hover {
+  color: var(--accent);
+}
+.coach-star.open {
+  color: var(--accent);
+}
+.coach-title-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.coach-card {
+  padding: 0;
+}
+.coach-panel {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+.coach-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.coach-head .card-title {
+  margin: 0;
+}
+.coach-close {
+  padding: 2px 4px;
+}
+.coach-thread {
+  display: grid;
+  gap: var(--space-2);
+  max-height: 22rem;
+  overflow-y: auto;
+}
+.coach-turn {
+  margin: 0;
+  padding: var(--space-2);
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+.coach-you {
+  background: var(--surface-2);
+  color: var(--ink-soft);
+  justify-self: end;
+}
+.coach-answer {
+  background: var(--accent-soft);
+}
+.coach-intent {
+  margin: 0 0 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.coach-text {
+  margin: 0;
+}
+.coach-board-link {
+  margin-top: var(--space-2);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.8rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.coach-refs {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+.coach-ref {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.coach-ref:hover {
+  border-color: var(--accent);
+}
+.coach-patterns {
+  display: grid;
+  gap: var(--space-1);
+  border-top: 1px solid var(--rule);
+  padding-top: var(--space-3);
+}
+.coach-patterns-title {
+  margin: 0;
+  font-size: 0.85rem;
+}
+.coach-patterns ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+.coach-pattern {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: 0.85rem;
+}
+.coach-ask {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+.coach-input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+}
+.coach-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.spin {
+  animation: coach-spin 0.9s linear infinite;
+}
+@keyframes coach-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* ---------- achievements (ACH-005/006/007) ---------------------------- */
 
 /* Rarity accent per band: the tile ring, its icon and the toast all read it

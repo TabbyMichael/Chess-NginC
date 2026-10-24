@@ -13,10 +13,15 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends stockfish \
     && rm -rf /var/lib/apt/lists/*
 
-# Install runtime deps first for layer caching.
-COPY pyproject.toml README.md ./
+# Install runtime deps first for layer caching — pinned exact versions with
+# --no-deps so the build never float-resolves (a slow PyPI read on the chess
+# sdist failed a prod build; requirements.txt is wheel-only and test-verified).
+# 60s socket timeout + retries so a transient stall cannot fail the build.
+ENV PIP_DEFAULT_TIMEOUT=60
+COPY pyproject.toml README.md requirements.txt ./
+RUN pip install --no-cache-dir --no-deps --retries 5 -r requirements.txt
 COPY app ./app
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir --no-deps .
 
 # Migrations ship with the image; applied as a controlled deploy step (REL-006).
 COPY alembic ./alembic

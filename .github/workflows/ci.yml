@@ -33,8 +33,8 @@ jobs:
       - name: Lint
         run: |
           cd apps/api
-          ruff check app tests
-          ruff format --check app tests
+          ruff check app tests scripts
+          ruff format --check app tests scripts
       - name: Type check
         run: |
           cd apps/api
@@ -46,6 +46,29 @@ jobs:
           cd apps/api
           alembic upgrade head
           alembic check
+      - name: Coach index migration round-trip
+        # Proves the coach_index stored generated tsvector column + GIN index
+        # apply and reverse cleanly on a throwaway database (Phase 11). Runs
+        # before the test suite, so the shared `chess` DB is left at head.
+        env:
+          database_url: postgresql+psycopg://tabbymichael:postgres@localhost:5432/chess_migrate_ci
+        run: |
+          cd apps/api
+          admin_url="postgresql://tabbymichael:postgres@localhost:5432/postgres"
+          psql "$admin_url" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE chess_migrate_ci'
+          alembic upgrade head
+          alembic downgrade base
+          alembic upgrade head
+          psql "$admin_url" -v ON_ERROR_STOP=1 -c 'DROP DATABASE chess_migrate_ci'
+      - name: Coach assistant tests
+        # Explicit Phase 11 coverage: the long-context + RAG + HTTP surface, run
+        # on their own so a coach regression names itself instead of hiding in
+        # the aggregate suite.
+        env:
+          database_url: postgresql+psycopg://tabbymichael:postgres@localhost:5432/chess
+        run: |
+          cd apps/api
+          pytest tests/ai -v
       - name: Tests
         env:
           database_url: postgresql+psycopg://tabbymichael:postgres@localhost:5432/chess

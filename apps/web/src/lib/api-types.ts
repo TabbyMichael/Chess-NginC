@@ -263,3 +263,51 @@ export interface MinePuzzleResponse {
   game_id: number;
   ply: number;
 }
+
+// --- Coach assistant (Phase 11) -------------------------------------------
+
+/** A coaching question about the reviewed game; `focus_ply` is the board cursor. */
+export interface AssistantAskRequest {
+  question: string;
+  focus_ply?: number | null;
+}
+
+/** One move an answer is grounded in — always a real, cited ply. */
+export interface AssistantReference {
+  ply: number;
+  san: string;
+  color: 'w' | 'b' | string;
+  note?: string;
+  game_id?: number | null;
+}
+
+/** What the coach was asked to do, and whether a model stayed grounded. */
+export type CoachIntent =
+  'summary' | 'plan' | 'alternatives' | 'position' | 'explain' | 'patterns' | 'opening' | 'general';
+
+export type CoachMode = 'deterministic' | 'llm';
+
+/** The coach's grounded answer, its intent, and the moves it cites. */
+export interface AssistantAnswerResponse {
+  answer: string;
+  intent: CoachIntent | string;
+  mode: CoachMode | string;
+  provider: string;
+  references: AssistantReference[];
+  position_fen?: string;
+}
+
+/** One opening family's error tally across the player's reviewed games. */
+export interface CoachPattern {
+  opening_family: string;
+  mistakes: number;
+  blunders: number;
+  total_errors: number;
+  avg_loss_cp: number;
+}
+
+/** The cross-game recall answer: a summary plus the counts it came from. */
+export interface CoachPatternsResponse {
+  summary: string;
+  items: CoachPattern[];
+}
