@@ -40,9 +40,20 @@ describe('themeOrder', () => {
       fork: progress(),
       hanging: progress(),
       pin: progress(),
+      skewer: progress(),
+      discovered: progress(),
       backrank: progress(),
     };
-    expect(themeOrder(themes)).toEqual(['mate', 'hanging', 'fork', 'pin', 'backrank', 'endgame']);
+    expect(themeOrder(themes)).toEqual([
+      'mate',
+      'hanging',
+      'fork',
+      'pin',
+      'skewer',
+      'discovered',
+      'backrank',
+      'endgame',
+    ]);
   });
 
   it('keeps only the themes present and appends unknown ones, sorted', () => {
@@ -54,6 +65,8 @@ describe('themeOrder', () => {
 describe('themeIdea', () => {
   it('gives a teaching line for a known theme', () => {
     expect(themeIdea('mate')).not.toBe('');
+    expect(themeIdea('skewer')).not.toBe('');
+    expect(themeIdea('discovered')).not.toBe('');
   });
 
   it('returns an empty string for an unknown theme', () => {

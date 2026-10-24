@@ -21,8 +21,8 @@ def _by_theme(theme: str) -> list:
     return [d for d in DRILLS if d.theme == theme]
 
 
-def test_catalog_is_at_least_18_across_all_themes() -> None:
-    assert len(DRILLS) >= 18
+def test_catalog_is_at_least_300_across_all_themes() -> None:
+    assert len(DRILLS) > 300
     assert {d.theme for d in DRILLS} == set(THEME_ORDER)
     for theme in THEME_ORDER:
         rows = _by_theme(theme)
@@ -36,7 +36,9 @@ def test_keys_are_unique() -> None:
 
 
 def test_verify_all_is_clean() -> None:
-    # This is the whole point of hand-authoring being safe.
+    # The load-bearing guarantee for a generated catalog: every position, curated
+    # or machine-built, does what its theme claims. This is what makes generating
+    # hundreds of drills safe rather than a source of quietly wrong puzzles.
     assert verify_all(DRILLS) == []
 
 
@@ -48,7 +50,15 @@ def test_every_mate_drill_delivers_checkmate() -> None:
 
 
 def test_every_material_drill_gains_at_least_a_pawn() -> None:
-    for drill in _by_theme("hanging") + _by_theme("fork") + _by_theme("pin") + _by_theme("endgame"):
+    material = (
+        _by_theme("hanging")
+        + _by_theme("fork")
+        + _by_theme("pin")
+        + _by_theme("skewer")
+        + _by_theme("discovered")
+        + _by_theme("endgame")
+    )
+    for drill in material:
         board = chess.Board(drill.fen)
         mover = board.turn
         before = material_balance(board)

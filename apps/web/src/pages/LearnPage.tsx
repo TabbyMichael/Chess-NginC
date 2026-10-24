@@ -153,7 +153,7 @@ export default function LearnPage() {
 
       {puzzle && (
         <Card className="drill-panel">
-          <div className="drill-board">
+          <div className="drill-board board-frame">
             <Chessboard
               fen={puzzle.fen}
               status="active"

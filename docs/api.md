@@ -180,9 +180,14 @@ becomes true mid-game.
 
 ## Training (all 🔒, LEARN-001..005)
 
-The Learn section: a curated drill catalog (`app/training/drills.py`, 6 themes ×
-3 levels, each re-proved sound by python-chess in `verify.py`) plus puzzles mined
-from the caller's own analysed games (`app/training/from_reviews.py`). Every
+The Learn section: a drill catalog (`app/training/drills.py`) of **8 themes × 3
+levels** — mate, hanging, fork, pin, skewer, discovered, back-rank and endgame.
+It is `DRILLS = CURATED + generated`: 18 hand-written core puzzles (the prose and
+the `mate-1` opening every mate theme resolves to) plus several hundred
+parametrically built positions (`app/training/generate.py`), **351** in total —
+and every one, curated or generated, is re-proved sound by python-chess in
+`verify.py` (`verify_all()` runs in CI). Alongside it, puzzles mined from the
+caller's own analysed games (`app/training/from_reviews.py`). Every
 attempt is appended to `training_attempts`, and the easy→hard ramp, the streak
 and the per-theme progress are all recomputed from that log — no mutable counter
 to drift.
@@ -195,7 +200,7 @@ because the frontend never determines the outcome.
 | Method & Path | Description |
 |---------------|-------------|
 | `GET /training/summary` | Per-theme `{label, solved, attempts, level, pct}` plus `{puzzles_solved, streak, mine_available}` (LEARN-003) |
-| `GET /training/puzzle?theme=&source=` | One puzzle at that theme's current level, or the next unsolved mined one (`source=game`); **no answer in the payload**; `404` when nothing is left |
+| `GET /training/puzzle?theme=&source=` | One puzzle at that theme's current level (`theme` ∈ the 8 catalog themes), or the next unsolved mined one (`source=game`); **no answer in the payload**; `404` when nothing is left |
 | `GET /training/mine` | The caller's "A move you missed" list — `{key, fen, prompt, game_id, ply}` for each mined puzzle (REV-005) |
 | `POST /training/attempts` | Body `{key, uci, reveal?}`. Verdict + reveal `{solved, solution_san, solution_from, solution_to, why, continuation, points_awarded, unlocked_achievements}` |
 
