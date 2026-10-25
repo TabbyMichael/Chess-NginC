@@ -15,6 +15,7 @@ from dataclasses import dataclass
 
 import chess
 
+from app.core.telemetry import engine_timer, record_engine_unavailable
 from app.engine.factory import open_stockfish_provider
 from app.engine.provider import AnalyseRequest
 from app.engine.stockfish import StockfishUnavailableError
@@ -85,7 +86,7 @@ def alternative_lines(fen: str, hero: str, *, limit: int = WHATIF_MULTIPV) -> li
     from_mover = side_is_white == hero_is_white
 
     try:
-        with open_stockfish_provider(for_review=False) as provider:
+        with open_stockfish_provider(for_review=False) as provider, engine_timer(provider.name):
             result = provider.analyse(
                 AnalyseRequest(
                     fen=fen,
@@ -96,6 +97,9 @@ def alternative_lines(fen: str, hero: str, *, limit: int = WHATIF_MULTIPV) -> li
                 )
             )
     except (StockfishUnavailableError, EngineUnavailableError):
+        # The answer degrades to "no alternatives" offline, but the outage is
+        # still an outage: count it (MON-004) before swallowing it.
+        record_engine_unavailable()
         return []
 
     lines: list[AltLine] = []

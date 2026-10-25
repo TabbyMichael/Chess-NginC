@@ -60,6 +60,9 @@ def _cloud_provider(*, for_review: bool) -> BatchedEngineProvider:
     """A hosted provider, or the one error explaining why nothing is available."""
     api_key = settings.stockfish_api_key
     if not api_key:
+        # MON-004 counts at the failure's surfacing point (opponent/review/
+        # what-if), not here — the same outage must not increment twice just
+        # because the factory is where the answer is "nothing".
         raise StockfishUnavailableError(
             "No Stockfish available: install the 'stockfish' package, set "
             "STOCKFISH_PATH, or configure STOCKFISH_API_KEY for the hosted engine."

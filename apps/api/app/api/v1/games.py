@@ -6,7 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.v1.achievements import celebrate, celebrate_at_end
-from app.api.v1.deps import enforce_same_origin, get_current_user, get_db_session
+from app.api.v1.deps import (
+    check_review_rate,
+    enforce_same_origin,
+    get_current_user,
+    get_db_session,
+)
 from app.api.v1.serializers import as_http_exception, to_game_response, to_review_response
 from app.games import service as game_service
 from app.games.errors import EngineUnavailableError
@@ -257,7 +262,7 @@ _REVIEW_RESPONSES: dict[int | str, dict[str, object]] = {
 @router.post(
     "/games/{game_id}/review",
     response_model=ReviewResponse,
-    responses=_REVIEW_RESPONSES,
+    responses={**_REVIEW_RESPONSES, 429: {"model": ErrorResponse}},
     dependencies=[_SameOrigin],
 )
 def create_game_review(
@@ -267,6 +272,10 @@ def create_game_review(
     db: Annotated[Session, _DbSession],
 ) -> ReviewResponse:
     """Generate (or return the cached) engine review of a finished game (REVIEW-001)."""
+    # A generation holds a warm engine for seconds of CPU (TD-013), so the POST
+    # is budgeted per hour and a force pays double (RL-001/D15). The cached GET
+    # path above stays free — players re-reading their review costs nothing.
+    check_review_rate(current_user.id, force=payload.force)
     try:
         review = review_service.generate_or_get(db, game_id, current_user.id, force=payload.force)
     except (GameNotFoundError, ReviewTargetError) as exc:

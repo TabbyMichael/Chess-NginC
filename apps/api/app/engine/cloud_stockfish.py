@@ -16,11 +16,14 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from typing import Any, Literal, cast
 
 import chess
 import requests
 
+from app.core.database import settings
+from app.core.telemetry import record_cloud_upstream_error, set_cloud_units_used_today
 from app.engine.provider import AnalyseRequest, AnalysisResult, PrincipalVariation
 from app.engine.stockfish import (
     REVIEW_MAX_DEPTH,
@@ -124,6 +127,10 @@ class CloudStockfishProvider:
         """POST /eval with one bounded retry; any failure becomes Unavailable."""
         if not cfg.api_key:
             raise StockfishUnavailableError("No Stockfish API key configured (STOCKFISH_API_KEY).")
+        # RL-003: the plan's 2,000 units/day is one pot for the whole account,
+        # so the app stops drawing from it before upstream has to say no.
+        estimate = units_for_depth(_as_int(body.get("depth"), default=cfg.max_depth))
+        _reserve_daily_units(estimate)
         headers = {"Authorization": f"Bearer {cfg.api_key}", "Accept": "application/json"}
         url = f"{cfg.base_url.rstrip('/')}/eval"
         last: Exception | None = None
@@ -145,12 +152,71 @@ class CloudStockfishProvider:
                 data = _json_body(response)
                 if data is None:
                     raise StockfishUnavailableError("Stockfish API returned a non-JSON body.")
+                # The response reports what the call actually cost; fall back
+                # to the depth estimate when a version stops sending it.
+                _consume_daily_units(max(0, _as_int(data.get("cost_units"), default=estimate)))
                 return data
+            record_cloud_upstream_error(response.status_code)  # 402/429 = plan trouble
             if _retryable(response.status_code) and attempt + 1 < CLOUD_ATTEMPTS:
                 time.sleep(_retry_wait_s(response))
                 continue
             raise StockfishUnavailableError(_problem_summary(response))
         raise StockfishUnavailableError(f"Stockfish API failed: {type(last).__name__}")
+
+
+# --- shared daily-unit budget (Phase 12A, RL-003/D15) ----------------------------
+# The free plan caps the *account* at 2,000 units/day, so one bored player
+# re-reviewing games could empty the pot for everyone. This is the app-wide
+# counter that says no first — with a clean operator-facing error instead of a
+# wave of upstream 402/429s. It only ever runs on the cloud route: the factory
+# keeps a local binary ahead of it (D7), and settings.cloud_daily_unit_budget=0
+# disables it entirely for accounts with a real plan.
+
+_BUDGET_LOCK = threading.Lock()
+_budget_state: dict[str, Any] = {"date": "", "used": 0}
+
+
+def units_for_depth(depth: int) -> int:
+    """Plan pricing: one unit up to depth 7, two for the 8–14 the API allows."""
+    return 1 if depth <= 7 else 2
+
+
+def _today() -> str:
+    return datetime.now(UTC).date().isoformat()
+
+
+def _reserve_daily_units(estimate: int) -> None:
+    """Refuse the request if the pot cannot cover it (day rolls over at UTC)."""
+    budget = settings.cloud_daily_unit_budget
+    today = _today()
+    with _BUDGET_LOCK:
+        if _budget_state["date"] != today:
+            _budget_state["date"] = today
+            _budget_state["used"] = 0
+        used = int(_budget_state["used"] or 0)
+        if budget > 0 and used + estimate > budget:
+            raise StockfishUnavailableError(
+                f"Hosted engine daily budget exhausted ({used} of {budget} units used "
+                "today). It refills tomorrow UTC, or install a local Stockfish binary."
+            )
+
+
+def _consume_daily_units(units: int) -> None:
+    today = _today()
+    with _BUDGET_LOCK:
+        if _budget_state["date"] != today:
+            _budget_state["date"] = today
+            _budget_state["used"] = 0
+        _budget_state["used"] = int(_budget_state["used"] or 0) + units
+        set_cloud_units_used_today(int(_budget_state["used"]))
+
+
+def reset_daily_budget() -> None:
+    """Forget the day's usage. Tests use this; production just rolls over."""
+    with _BUDGET_LOCK:
+        _budget_state["date"] = ""
+        _budget_state["used"] = 0
+    set_cloud_units_used_today(0)
 
 
 def _as_int(value: Any, *, default: int = 0) -> int:

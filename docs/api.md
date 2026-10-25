@@ -9,7 +9,15 @@
   marked 🔒 require it; otherwise `401 {"detail": "Not authenticated"}`.
 - **CSRF:** state-changing endpoints require a same-origin `Origin`/`Referer`
   (see SEC-008); cross-origin POSTs get `403`.
-- **Rate limits:** auth endpoints allow 10 req/min per IP (`429` when exceeded).
+- **Rate limits:** per surface, per minute (auth: 10/min/IP; online moves and
+  coach asks and training attempts: per user/min; review **generations**: 10/hour/user,
+  `force` costs 2 — all tunable via `*_RATE_LIMIT_*` env). Every `429` carries a
+  `Retry-After` header naming when to come back.
+- **Request ids:** every response carries `X-Request-ID` (an inbound one is
+  honored); it ties every log line of a request together (MON-001).
+- **Operational:** `GET /metrics` (Prometheus text, api port only — not proxied,
+  not in this contract) exposes per-route RED plus engine/limiter/cloud-budget
+  instruments (D14).
 - **Ownership:** games are scoped to the caller; foreign/unknown ids return
   `404` (indistinguishable, no enumeration).
 
@@ -26,7 +34,7 @@
 | 404 | Not Found | Unknown id or foreign-owner resource |
 | 409 | Conflict | Stale `expected_version`, action on finished game |
 | 422 | Unprocessable Content | Illegal/unparsable move, bad draw claim, review of an unfinished game |
-| 429 | Too Many Requests | Auth rate limit exceeded |
+| 429 | Too Many Requests | A per-surface rate limit exceeded; response carries `Retry-After` |
 | 503 | Service Unavailable | No Stockfish engine reachable — neither a local binary nor a configured `STOCKFISH_API_KEY` (engine moves / review) |
 
 ## Auth

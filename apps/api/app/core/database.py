@@ -1,12 +1,13 @@
 """Database configuration and session management (REL-001/REL-002/REL-008)."""
 
 import logging
-import sys
 from collections.abc import Generator
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+
+from app.core import telemetry
 
 
 class Settings(BaseSettings):
@@ -26,6 +27,15 @@ class Settings(BaseSettings):
     auth_rate_limit_per_minute: int = 10
     # Online move spam guard (online-plan §6.1), per user per minute.
     move_rate_limit_per_minute: int = 60
+    # Cost-tiered limiters (Phase 12A, D15): a review holds a warm engine for
+    # seconds of CPU, so it is budgeted per hour and a forced re-run counts
+    # double; training attempts write ledger rows, so they get a modest ceiling.
+    review_rate_limit_per_hour: int = 10
+    training_rate_limit_per_minute: int = 60
+    # Shared hosted-engine daily pot (stockfishapi.com free tier is 2,000
+    # units/day for the whole account). The guard trips before upstream does;
+    # 0 disables it. Only ever consulted on the cloud route (D7 local-first).
+    cloud_daily_unit_budget: int = 1800
     # Password reset (SEC): short-lived single-use tokens. `reset_link_base`
     # is the public web origin used to build the emailed link. SMTP is
     # optional — with no `smtp_host` the link is logged (dev convenience).
@@ -66,6 +76,8 @@ class Settings(BaseSettings):
     coach_history_max_turns: int = 8
     coach_line_max_steps: int = 8
     log_level: str = "INFO"
+    # MON-001: JSON lines are the default; false restores the text format.
+    log_json: bool = True
 
     model_config = SettingsConfigDict(env_file=".env")
 
@@ -75,12 +87,10 @@ settings = Settings()
 if settings.app_env == "production" and settings.secret_key == "change-me-in-development-only":
     raise RuntimeError("REFUSE TO START: set a unique SECRET_KEY in production (REL-002).")
 
-# Structured logging (REL-008): single-line timestamped records to stdout.
-logging.basicConfig(
-    stream=sys.stdout,
-    level=getattr(logging, settings.log_level.upper(), logging.INFO),
-    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-)
+# Structured logging (REL-008, MON-001): one record per line to stdout —
+# JSON objects by default, text lines when LOG_JSON=false. Levels and format
+# live in app/core/telemetry.py; nothing here logs secrets or session tokens.
+telemetry.configure_logging(settings.log_level, settings.log_json)
 logger = logging.getLogger("chess-engine-api")
 
 

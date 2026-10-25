@@ -52,7 +52,7 @@ const SUGGESTIONS = [
 const INTENT_LABEL: Record<string, string> = {
   summary: 'Overview',
   plan: 'Best way to proceed',
-  lesson: 'Let\'s walk it',
+  lesson: "Let's walk it",
   why: 'Why it is better',
   idea: 'The idea',
   alternatives: 'Other ways it could have gone',

@@ -93,15 +93,18 @@ def _clean_ephemeral_state() -> Generator[None, None, None]:
     (online-plan §2/§5); without this reset tests leak pairings into
     each other.
     """
+    from app.engine.cloud_stockfish import reset_daily_budget
     from app.games import hub, lobby
 
     lobby.reset_lobby()
     hub.reset_hub()
     reset_rate_limits()
+    reset_daily_budget()
     yield
     lobby.reset_lobby()
     hub.reset_hub()
     reset_rate_limits()
+    reset_daily_budget()
 
 
 @pytest.fixture()

@@ -29,7 +29,8 @@ const ANSWER: AssistantAnswerResponse = {
 };
 
 const LINE_ANSWER: AssistantAnswerResponse = {
-  answer: 'Recommendation: play e5 instead of c5.\nThe idea: strike the centre.\nThe line: e5 Nf3 d6.',
+  answer:
+    'Recommendation: play e5 instead of c5.\nThe idea: strike the centre.\nThe line: e5 Nf3 d6.',
   intent: 'plan',
   mode: 'deterministic',
   provider: 'stockfish+book',

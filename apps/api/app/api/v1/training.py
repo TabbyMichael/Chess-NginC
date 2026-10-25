@@ -13,7 +13,12 @@ from sqlalchemy.orm import Session
 
 from app.achievements.catalog import Achievement
 from app.api.v1.achievements import to_response as to_achievement_response
-from app.api.v1.deps import enforce_same_origin, get_current_user, get_db_session
+from app.api.v1.deps import (
+    enforce_same_origin,
+    get_current_user,
+    get_db_session,
+    rate_limit_training,
+)
 from app.api.v1.schemas import (
     ErrorResponse,
     MinePuzzleResponse,
@@ -34,6 +39,9 @@ router = APIRouter(tags=["training"])
 _DbSession = Depends(get_db_session)  # noqa: E402
 _CurrentUser = Depends(get_current_user)  # noqa: E402
 _SameOrigin = Depends(enforce_same_origin)  # noqa: E402
+# Every attempt grades server-side and may write a ledger row, so the write
+# route carries its own per-user budget (Phase 12A, RL-002).
+_RateLimitTraining = Depends(rate_limit_training)  # noqa: E402
 
 _READ_RESPONSES: dict[int | str, dict[str, object]] = {401: {"model": ErrorResponse}}
 _PUZZLE_RESPONSES: dict[int | str, dict[str, object]] = {
@@ -44,6 +52,7 @@ _ATTEMPT_RESPONSES: dict[int | str, dict[str, object]] = {
     401: {"model": ErrorResponse},
     404: {"model": ErrorResponse},
     422: {"model": ErrorResponse},
+    429: {"model": ErrorResponse},
 }
 
 
@@ -143,7 +152,7 @@ def training_mine(
     "/training/attempts",
     response_model=TrainingAttemptResponse,
     responses=_ATTEMPT_RESPONSES,
-    dependencies=[_SameOrigin],
+    dependencies=[_SameOrigin, _RateLimitTraining],
 )
 def submit_attempt(
     payload: TrainingAttemptRequest,

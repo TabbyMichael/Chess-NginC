@@ -489,4 +489,35 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 | COACH-11B3 | Conversation memory: bounded history + focus carry-forward for follow-ups | P1 | [x] | `app/ai/service.py` (`_resolve_focus_ply`); `tests/ai/test_assistant.py` |
 | COACH-11B4 | API `history`/`line`/`line_title` + coach drives the main review board (lesson stepper) | P1 | [x] | `schemas.py`, `assistant.py`, `ReviewPage.tsx`, `CoachAssistant.tsx`; web `*.test.tsx` |
 
+---
+
+## Phase 12 — Market Readiness (monitoring, abuse defense, admin floor, fair play)
+
+> Public SaaS release plan: **12A** observability + cost-tiered rate limiting
+> (D14/D15), **12B** identity + minimal RBAC with audit (D16 + TD-005),
+> **12C** anti-cheat built evidence-first — capture before launch, flag-only,
+> moderation enforces (D17). Full tracker: [`docs/market-plan.md`](docs/market-plan.md).
+> New debt created by the plan: TD-021 (proxy/XFF trust), TD-022 (fairplay
+> threshold calibration), TD-023 (post-game-only detection). Launch gates
+> outside this phase: TD-013→ANL-008 review jobs, ToS/privacy, Redis at TD-012's trigger.
+
+| ID | Requirement | Pri | Status | Evidence / Location |
+|----|-------------|-----|--------|---------------------|
+| MON-001 | JSON-line logs with `request_id` | P1 | [x] | `app/core/telemetry.py` + middleware in `app/main.py`; `X-Request-ID` honored/echoed; `LOG_JSON=false` opt-out; smoke in `tests/test_phase12_telemetry.py` |
+| MON-002 | `/metrics` (prometheus-fastapi-instrumentator) | P1 | [x] | `prometheus-fastapi-instrumentator` mounted in `main.py`; excluded from OpenAPI + access log; deployment.md §8 |
+| MON-003 | `engine_analyse_seconds` histogram by provider | P1 | [x] | `telemetry.ENGINE_ANALYSE_SECONDS{provider}` observed at analyse sites (reviews/opponent/whatif) |
+| MON-004 | `engine_unavailable_total` counter | P1 | [x] | counted where failures surface (503s + failed reviews); factory stays silent to avoid double-count |
+| MON-005 | `rate_limit_rejections_total{bucket}` | P1 | [x] | every `check_*` bucket in `deps.py` increments on reject |
+| MON-006 | cloud daily-units burn + upstream 4xx counters | P1 | [x] | `cloud_stockfish.py` budget guard + `cloud_upstream_errors_total{status}`; tests in `test_cloud_stockfish.py` |
+| MON-007 | `ws_connections_active` gauge | P2 | [x] | hub inc/dec on connect/disconnect |
+| MON-008 | deployment.md §8 alert-target rewrite | P1 | [x] | deployment.md §7–§8 rewritten to what exists + alert-target list |
+| RL-001 | Review limiter 10/h/user (`force` costs 2) | P0 | [x] | `REVIEW_RATE_LIMIT_PER_HOUR` (default 10) in `deps.py`, wired on `POST /games/{id}/review`; budget tests in `test_phase12_telemetry.py` |
+| RL-002 | Training-attempt limiter 60/min/user | P1 | [x] | `TRAINING_RATE_LIMIT_PER_MINUTE` wired on attempt submission |
+| RL-003 | Global cloud-budget guard (~1,800/day → clean 503) | P1 | [x] | `CLOUD_DAILY_UNIT_BUDGET` in `cloud_stockfish.py`; trips before upstream; 0 disables |
+| RL-004 | `Retry-After` on every 429 | P1 | [x] | all buckets emit seconds-until-window-clear |
+| SEC-021..028 | Email verification, role column, `require_role`, audit_log, support endpoints, status enforcement | P0 | [ ] | market-plan.md 12B |
+| FP-001..003 | Capture before launch: `think_ms`, salted `ip_hash`, `auth_events`, retention | P0 | [ ] | market-plan.md 12C-C1 |
+| FP-010..015 | `app/fairplay` detection signals + scoring + flags (hermetic) | P1 | [ ] | market-plan.md 12C-C2 |
+| FP-020..024 | Moderation queue, evidence page, verdicts, appeals, ban enforcement | P1 | [ ] | market-plan.md 12C-C3 |
+
 > Statuses must be updated in this file only after the corresponding acceptance criteria are met and checks pass.

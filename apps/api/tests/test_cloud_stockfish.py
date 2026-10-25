@@ -454,3 +454,91 @@ def test_factory_passes_the_base_url_and_key_from_settings(monkeypatch: pytest.M
     assert provider._config.api_key == "sk_test"
     assert provider._config.base_url == "https://example.test/v1"
     provider.close()
+
+
+# --- shared daily-unit budget (Phase 12A, RL-003 / MON-006) -------------------------
+
+
+def _gauge_value(name: str) -> float:
+    from app.core.telemetry import CLOUD_UNITS_USED_TODAY
+
+    for sample in CLOUD_UNITS_USED_TODAY.collect():
+        for s in sample.samples:
+            if s.name == name:
+                return s.value
+    return -1.0
+
+
+def _counter_total(name: str, status: str) -> float:
+    from app.core.telemetry import CLOUD_UPSTREAM_ERRORS_TOTAL
+
+    for sample in CLOUD_UPSTREAM_ERRORS_TOTAL.collect():
+        for s in sample.samples:
+            if s.name == name and s.labels.get("status") == status:
+                return s.value
+    return -1.0
+
+
+def test_units_for_depth_matches_plan_pricing() -> None:
+    # Free plan: one unit up to depth 7, two for the 8–14 it caps at.
+    assert cloud_stockfish.units_for_depth(6) == 1
+    assert cloud_stockfish.units_for_depth(7) == 1
+    assert cloud_stockfish.units_for_depth(8) == 2
+    assert cloud_stockfish.units_for_depth(14) == 2
+
+
+def test_budget_trips_before_upstream_does(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "cloud_daily_unit_budget", 3)
+    provider = make_provider([FakeResponse(200, eval_payload()), FakeResponse(200, eval_payload())])
+    provider.analyse(AnalyseRequest(fen=STARTING_FEN, depth=14, multipv=1))  # costs 2
+    assert _gauge_value("cloud_units_used_today") == 2
+    # 2 used + 2 estimated > 3: the guard says no without touching the wire.
+    with pytest.raises(StockfishUnavailableError, match="daily budget exhausted"):
+        provider.analyse(AnalyseRequest(fen=STARTING_FEN, depth=14, multipv=1))
+    assert len(provider._session.calls) == 1  # type: ignore[union-attr]
+
+
+def test_cost_units_from_the_response_are_authoritative(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A response that says it cost 1 (e.g. a shallow call) draws 1, not the
+    # depth estimate — the pot must reflect the vendor's meter, not ours.
+    monkeypatch.setattr(settings, "cloud_daily_unit_budget", 3)
+    cheap = eval_payload()
+    cheap["cost_units"] = 1
+    provider = make_provider([FakeResponse(200, cheap)] * 2)
+    provider.analyse(AnalyseRequest(fen=STARTING_FEN, depth=14, multipv=1))
+    provider.analyse(AnalyseRequest(fen=STARTING_FEN, depth=14, multipv=1))
+    # Two depth-14 calls estimated at 2 each but metered at 1: the pot moved 2,
+    # not 4 — and the second call still fit (1 used + 2 est <= 3).
+    assert _gauge_value("cloud_units_used_today") == 2
+    assert len(provider._session.calls) == 2  # type: ignore[union-attr]
+
+
+def test_zero_budget_disables_the_guard(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Accounts with a real plan opt out entirely: no counter, no refusals.
+    monkeypatch.setattr(settings, "cloud_daily_unit_budget", 0)
+    provider = make_provider([FakeResponse(200, eval_payload())] * 3)
+    for _ in range(3):
+        provider.analyse(AnalyseRequest(fen=STARTING_FEN, depth=14, multipv=1))
+    assert len(provider._session.calls) == 3  # type: ignore[union-attr]
+
+
+def test_upstream_client_errors_are_counted_by_status() -> None:
+    name = "cloud_upstream_errors_total"
+    before = _counter_total(name, "402")
+    provider = make_provider(
+        [FakeResponse(402, {"title": "Payment method required"}, reason="Payment Required")]
+    )
+    with pytest.raises(StockfishUnavailableError):
+        provider.analyse(AnalyseRequest(fen=STARTING_FEN, depth=5, multipv=1))
+    assert _counter_total(name, "402") == before + 1
+
+
+def test_reset_daily_budget_forgets_the_day(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The hook conftest leans on between tests: used units and the trip go away.
+    monkeypatch.setattr(settings, "cloud_daily_unit_budget", 3)
+    provider = make_provider([FakeResponse(200, eval_payload())] * 2)
+    provider.analyse(AnalyseRequest(fen=STARTING_FEN, depth=14, multipv=1))
+    assert _gauge_value("cloud_units_used_today") == 2
+    cloud_stockfish.reset_daily_budget()
+    assert _gauge_value("cloud_units_used_today") == 0
+    provider.analyse(AnalyseRequest(fen=STARTING_FEN, depth=14, multipv=1))  # fits again
