@@ -14,7 +14,9 @@
 | `CORS_ORIGINS` | env | exact public origin(s), e.g. `https://chess.example.com` (REL-012) |
 | `COOKIE_SECURE` | env | `true` (cookies only over HTTPS, REL-012) |
 | `LOG_LEVEL` | env | `INFO` (or `WARNING`) |
-| `STOCKFISH_PATH` | env | absolute path or empty (PATH lookup); never from clients |
+| `STOCKFISH_PATH` | env | absolute path; empty = PATH lookup, then distro package paths; never from clients |
+| `STOCKFISH_API_KEY` | env/secret store | hosted Stockfish (stockfishapi.com) Bearer key; **only** used as fallback when no local binary is found; empty = cloud disabled; never logged or returned |
+| `STOCKFISH_API_BASE_URL` | env | hosted API base, default `https://stockfishapi.com/v1` |
 
 Copy `.env.example` → `.env` for local dev only. **Never commit `.env`.**
 
@@ -96,14 +98,39 @@ Migrations run **before** the new code serves traffic, as an explicit step:
 
 ## 10. Stockfish deployment & licensing (REL-011)
 
-- The Stockfish **binary is not distributed** with this repo — it is **GPL-3.0**,
-  and bundling it would impose GPL on the whole service (`app/engine/stockfish.py`).
-- The adapter finds the binary via `PATH` or an explicit `STOCKFISH_PATH`; if it is
-  missing, engine moves fail cleanly (503/422) and the custom engine still runs.
-- **Install at deploy time** from the distro or upstream, not from this repo:
-  `apt-get install stockfish` (Ubuntu `stockfish 16`), or build from
-  <https://github.com/official-stockfish/Stockfish>. Review GPL-3.0 obligations
-  (source availability) before redistributing the binary in a product.
+- The Stockfish **binary is not committed or vendored** in this repo — it is
+  **GPL-3.0**, and adding it to the source tree would impose GPL on the whole
+  service (`app/engine/stockfish.py`).
+- **Both container images install it from the distro at build time**
+  (`apt-get install stockfish` in `apps/api/Dockerfile` and `Dockerfile.dev`),
+  because the computer opponent and game review are real Stockfish now
+  (PLAY-001 / decision D7). Installing it into an image you run yourself is an
+  install; **publishing that image is redistribution of the binary** — review
+  GPL-3.0 obligations (source availability, SBOM) before doing so (TD-004).
+- Discovery order: explicit `STOCKFISH_PATH`, then `PATH`, then the distro
+  package locations the adapter probes. Debian/Ubuntu install to
+  `/usr/games/stockfish`, which slim images keep off `PATH`, so the probe is
+  what makes the shipped image work with no configuration.
+- **Local-first, hosted fallback.** `app/engine/factory.py` decides once per call:
+  if a binary resolves (`STOCKFISH_PATH`, then `PATH`, then the distro probe),
+  use `StockfishProvider`; otherwise use `CloudStockfishProvider` with
+  `STOCKFISH_API_KEY`. If neither is available it raises one error naming both
+  fixes (install/set the binary, or set the key). `compose.yaml` and
+  `compose.dev.yaml` forward `STOCKFISH_API_KEY` / `STOCKFISH_API_BASE_URL` into
+  the api container; running `uvicorn` on the host reads `apps/api/.env`
+  (pydantic-settings loads it relative to the cwd), so mirror the key there too.
+- The hosted score's side-to-move perspective is not documented upstream, so the
+  provider calibrates it once at runtime (a Black-to-move, queen-up probe) and
+  caches the convention process-wide; the probe falling back to the UCI mover-POV
+  default keeps reviews correct rather than silently sign-flipped. The provider
+  clamps to the plan's max depth and never echoes the key or raw body in errors.
+- With no binary **and** no key, engine moves and reviews fail cleanly (503) — there is
+  **no silent fallback to the weaker custom engine** (D7). Local hot-seat and
+  online human-vs-human play are unaffected; only computer games need it.
+- Alternative installs: build from
+  <https://github.com/official-stockfish/Stockfish>, or on macOS
+  `brew install stockfish` when running `uvicorn` on the host rather than in
+  Docker (a host run needs a host binary).
 
 ## 11. CORS & cookie settings (REL-012)
 

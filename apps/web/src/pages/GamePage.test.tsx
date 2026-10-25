@@ -25,13 +25,14 @@ function game(overrides: Partial<GameResponse> = {}): GameResponse {
 
 function renderGame(path = '/games/7') {
   const user = userEvent.setup();
-  vi.spyOn(api, 'me').mockResolvedValue({ id: 1, email: 'a@b.co' });
+  vi.spyOn(api, 'me').mockResolvedValue({ id: 1, email: 'a@b.co', points: 0 });
   // Each test spies `getGame` before calling this so load states are explicit.
   const view = render(
     <MemoryRouter initialEntries={[path]}>
       <AuthProvider>
         <Routes>
           <Route path="/games/:id" element={<GamePage />} />
+          <Route path="/online/:id" element={<p>Online board</p>} />
           <Route path="/" element={<p>Dashboard</p>} />
         </Routes>
       </AuthProvider>
@@ -71,8 +72,18 @@ describe('GamePage load (WEB-024/025)', () => {
     expect(getGame).toHaveBeenCalledWith(7);
     expect(screen.getByRole('list', { name: 'move history' })).toHaveTextContent('e4');
     // Board reflects the resumed position: e4 occupied, e2 empty.
-    expect(screen.getByRole('gridcell', { name: /^e4,/ })).toHaveTextContent('♙');
-    expect(screen.getByRole('gridcell', { name: /^e2,/ })).not.toHaveTextContent('♙');
+    expect(screen.getByRole('gridcell', { name: /^e4,/ })).toHaveAccessibleName('e4, white p');
+    expect(screen.getByRole('gridcell', { name: /^e2,/ })).toHaveAccessibleName('e2, empty');
+  });
+
+  it('redirects online games to the /online/:id board', async () => {
+    // Legacy routes refuse online games, so the page must hand the row over.
+    vi.spyOn(api, 'getGame').mockResolvedValue(
+      game({ mode: 'online', white_user_id: 1, black_user_id: 2 }),
+    );
+    renderGame('/games/7');
+
+    expect(await screen.findByText('Online board')).toBeInTheDocument();
   });
 
   it('shows an error state when the game cannot be loaded', async () => {
@@ -100,16 +111,20 @@ describe('GamePage moves (WEB-011/019/025)', () => {
     expect(await screen.findByRole('list', { name: 'move history' })).toHaveTextContent('e4');
   });
 
-  it('surfaces an illegal move as an error without changing the board', async () => {
-    vi.spyOn(api, 'submitMove').mockRejectedValueOnce(new ApiError(422, 'Illegal move'));
+  it('does not show an error banner for a rejected move (sound only)', async () => {
+    const submit = vi
+      .spyOn(api, 'submitMove')
+      .mockRejectedValueOnce(new ApiError(422, 'Illegal move'));
     vi.spyOn(api, 'getGame').mockResolvedValue(game());
     const { user } = renderGame('/games/7');
 
     await clickMove(user, 'e2', 'e5');
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Illegal move');
+    await waitFor(() => expect(submit).toHaveBeenCalled());
+    // A wrong move is felt, not read: no error banner is rendered.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     // Board unchanged: pawn still on e2.
-    expect(screen.getByRole('gridcell', { name: /^e2,/ })).toHaveTextContent('♙');
+    expect(screen.getByRole('gridcell', { name: /^e2,/ })).toHaveAccessibleName('e2, white p');
   });
 
   it('re-syncs the board after a 409 version conflict', async () => {
@@ -126,7 +141,7 @@ describe('GamePage moves (WEB-011/019/025)', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Game changed');
     await waitFor(() => expect(getGame).toHaveBeenCalledTimes(2));
     await waitFor(() =>
-      expect(screen.getByRole('gridcell', { name: /^e4,/ })).toHaveTextContent('♙'),
+      expect(screen.getByRole('gridcell', { name: /^e4,/ })).toHaveAccessibleName('e4, white p'),
     );
   });
 
@@ -142,15 +157,31 @@ describe('GamePage moves (WEB-011/019/025)', () => {
     expect(undo).toHaveBeenCalledWith(7, { expected_version: 4 });
   });
 
-  it('resigns the game and locks the controls', async () => {
+  it('resigns the game after confirmation and locks the controls', async () => {
     vi.spyOn(api, 'resignGame').mockResolvedValue(game({ status: 'resigned', version: 2 }));
     vi.spyOn(api, 'getGame').mockResolvedValue(game());
     const { user } = renderGame('/games/7');
 
     await user.click(await screen.findByRole('button', { name: 'Resign' }));
+    // Destructive actions ask for confirmation first.
+    const dialog = await screen.findByRole('alertdialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Resign game' }));
 
     expect(await screen.findByText(/Resigned/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Resign' })).toBeDisabled();
+  });
+
+  it('does not resign when the confirmation is cancelled', async () => {
+    const resign = vi.spyOn(api, 'resignGame');
+    vi.spyOn(api, 'getGame').mockResolvedValue(game());
+    const { user } = renderGame('/games/7');
+
+    await user.click(await screen.findByRole('button', { name: 'Resign' }));
+    const dialog = await screen.findByRole('alertdialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(resign).not.toHaveBeenCalled();
   });
 
   it('resets to the start by undoing every move', async () => {
@@ -183,6 +214,8 @@ describe('GamePage moves (WEB-011/019/025)', () => {
     const { user } = renderGame('/games/7');
 
     await user.click(await screen.findByRole('button', { name: /Reset to start/ }));
+    const dialog = await screen.findByRole('alertdialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Reset game' }));
 
     expect(undo).toHaveBeenCalledTimes(3);
     await waitFor(() => expect(undo).toHaveBeenLastCalledWith(7, { expected_version: 2 }));
@@ -195,13 +228,11 @@ describe('GamePage moves (WEB-011/019/025)', () => {
 describe('GamePage promotion (WEB-015)', () => {
   it('asks which piece to promote to before sending the move', async () => {
     const submit = vi.spyOn(api, 'submitMove').mockResolvedValue(game({ version: 2 }));
-    // White pawn on b7 ready to promote on a8.
-    vi.spyOn(api, 'getGame').mockResolvedValue(
-      game({ fen: '1nb1kbn1/1P1ppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1' }),
-    );
+    // White pawn on e7 with an empty e8: a legal one-step promotion.
+    vi.spyOn(api, 'getGame').mockResolvedValue(game({ fen: '7k/4P3/8/8/8/8/8/4K3 w - - 0 1' }));
     const { user } = renderGame('/games/7');
 
-    await clickMove(user, 'b7', 'a8');
+    await clickMove(user, 'e7', 'e8');
 
     // Picker appears before any request is sent.
     const dialog = await screen.findByRole('dialog');
@@ -209,7 +240,22 @@ describe('GamePage promotion (WEB-015)', () => {
 
     await user.click(within(dialog).getByRole('button', { name: /promote to n/i }));
 
-    expect(submit).toHaveBeenCalledWith(7, { uci: 'b7a8n', expected_version: 1 });
+    expect(submit).toHaveBeenCalledWith(7, { uci: 'e7e8n', expected_version: 1 });
+  });
+
+  it('does not open the picker for a pawn outside promotion territory', async () => {
+    // Regression: touching the back rank from a square the pawn cannot reach
+    // in one move must NOT offer pieces — the old check keyed only on the pawn
+    // plus rank 8, so e4→e8 wrongly showed the picker.
+    const submit = vi.spyOn(api, 'submitMove').mockResolvedValue(game({ version: 2 }));
+    vi.spyOn(api, 'getGame').mockResolvedValue(game({ fen: '7k/8/8/8/4P3/8/8/4K3 w - - 0 1' }));
+    const { user } = renderGame('/games/7');
+
+    await clickMove(user, 'e4', 'e8');
+
+    // No picker; the (illegal) move is simply sent to the server instead.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(submit).toHaveBeenCalledWith(7, { uci: 'e4e8', expected_version: 1 });
   });
 });
 
@@ -259,71 +305,103 @@ describe('GamePage status and engine (WEB-013/014/020/021)', () => {
   });
 });
 
-describe('GamePage status, promotion and engine (WEB-013/015/020/021)', () => {
-  it('asks which piece to promote to, then sends the chosen letter', async () => {
-    const submit = vi.spyOn(api, 'submitMove').mockResolvedValue(game({ version: 2 }));
-    // White pawn on b7 ready to promote on a8.
-    vi.spyOn(api, 'getGame').mockResolvedValue(
-      game({ fen: '1nb1kbn1/1P1ppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1' }),
-    );
+describe('GamePage legal-move hints', () => {
+  it('lights empty target squares with dots and capture targets with rings', async () => {
+    vi.spyOn(api, 'getGame').mockResolvedValue(game());
     const { user } = renderGame('/games/7');
 
-    await clickMove(user, 'b7', 'a8');
+    await user.click(await screen.findByRole('gridcell', { name: /^e2,/ }));
 
-    // The dialog appears before any request is sent.
-    const dialog = await screen.findByRole('dialog');
-    expect(submit).not.toHaveBeenCalled();
+    // Pawn pushes show subtle dots; the e7 pawn is not a legal target here.
+    expect(screen.getByRole('gridcell', { name: /^e3,/ })).toHaveClass('hint-target');
+    expect(screen.getByRole('gridcell', { name: /^e4,/ })).toHaveClass('hint-target');
+    expect(screen.getByRole('gridcell', { name: /^e7,/ })).not.toHaveClass('hint-capture');
 
-    await user.click(within(dialog).getByRole('button', { name: /promote to n/i }));
-
-    expect(submit).toHaveBeenCalledWith(7, { uci: 'b7a8n', expected_version: 1 });
+    // Deselect, then jump the knight: f3 is a legal target (subtle dot).
+    await user.click(screen.getByRole('gridcell', { name: /^e2,/ }));
+    await user.click(await screen.findByRole('gridcell', { name: /^g1,/ }));
+    expect(screen.getByRole('gridcell', { name: /^f3,/ })).toHaveClass('hint-target');
   });
 
-  it('announces checkmate as game over and locks controls', async () => {
+  it('shows capture rings on enemy pieces', async () => {
+    // After 1.e4 d5 the e4 pawn can capture d5.
     vi.spyOn(api, 'getGame').mockResolvedValue(
       game({
-        status: 'checkmate',
-        fen: 'rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3',
+        fen: 'rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 2',
+        version: 3,
+        moves: [
+          { uci: 'e2e4', san: 'e4', move_number: 1 },
+          { uci: 'd7d5', san: 'd5', move_number: 1 },
+        ],
       }),
     );
-    renderGame('/games/7');
+    const { user } = renderGame('/games/7');
 
-    expect(await screen.findByText(/Checkmate/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Resign' })).toBeDisabled();
+    await user.click(await screen.findByRole('gridcell', { name: /^e4,/ }));
+
+    expect(screen.getByRole('gridcell', { name: /^d5,/ })).toHaveClass('hint-capture');
   });
+});
 
-  it('announces stalemate as a draw', async () => {
-    vi.spyOn(api, 'getGame').mockResolvedValue(
-      game({ status: 'stalemate', fen: 'k7/8/1Q6/8/8/8/8/K7 b - - 0 1' }),
+describe('GamePage auto-engine reply', () => {
+  it('answers the played move in computer mode without a button click', async () => {
+    const engineMove = vi
+      .spyOn(api, 'engineMove')
+      // Engine answers 1.e4 with 1...e5: FEN tail flips back to white to move.
+      .mockResolvedValue(
+        game({
+          mode: 'computer',
+          fen: 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2',
+          version: 3,
+          moves: [
+            { uci: 'e2e4', san: 'e4', move_number: 1 },
+            { uci: 'e7e5', san: 'e5', move_number: 1 },
+          ],
+        }),
+      );
+    vi.spyOn(api, 'submitMove').mockResolvedValueOnce(
+      game({
+        mode: 'computer',
+        fen: AFTER_E4,
+        version: 2,
+        moves: [{ uci: 'e2e4', san: 'e4', move_number: 1 }],
+      }),
     );
-    renderGame('/games/7');
-    expect(await screen.findByText(/Stalemate/)).toBeInTheDocument();
-  });
-
-  it('offers an engine move in computer mode', async () => {
-    vi.spyOn(api, 'getGame').mockResolvedValue(game({ mode: 'computer' }));
-    renderGame('/games/7');
-    expect(await screen.findByRole('button', { name: /Engine move/ })).toBeInTheDocument();
-  });
-
-  it('hides the engine move button in local mode', async () => {
-    vi.spyOn(api, 'getGame').mockResolvedValue(game({ mode: 'local' }));
-    renderGame('/games/7');
-    await screen.findByRole('heading', { name: /Game #7/ });
-    expect(screen.queryByRole('button', { name: /Engine move/ })).not.toBeInTheDocument();
-  });
-
-  it('requests an engine move at the chosen depth', async () => {
-    const engineMove = vi.spyOn(api, 'engineMove').mockResolvedValue(game({ version: 2 }));
     vi.spyOn(api, 'getGame').mockResolvedValue(game({ mode: 'computer' }));
     const { user } = renderGame('/games/7');
 
-    await user.click(await screen.findByRole('button', { name: /Engine move/ }));
+    await clickMove(user, 'e2', 'e4');
 
-    expect(engineMove).toHaveBeenCalledWith(7, {
-      expected_version: 1,
-      max_depth: 3,
-      max_time_ms: 2000,
-    });
+    // The engine reply fires on its own once it is Black's turn.
+    await waitFor(() =>
+      expect(engineMove).toHaveBeenCalledWith(7, {
+        expected_version: 2,
+        max_depth: 3,
+        max_time_ms: 2000,
+      }),
+    );
+    // And the reply landed: board is White to move again.
+    expect(await screen.findByRole('gridcell', { name: /^e5,/ })).toBeInTheDocument();
+  });
+
+  it('does not auto-request when the player is already to move', async () => {
+    const engineMove = vi.spyOn(api, 'engineMove');
+    vi.spyOn(api, 'getGame').mockResolvedValue(game({ mode: 'computer' }));
+    renderGame('/games/7');
+
+    await screen.findByRole('heading', { name: /Game #7/ });
+    // White to move at load: no automatic engine call, only the manual button.
+    expect(engineMove).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: /Engine move/ })).toBeInTheDocument();
+  });
+
+  it('never auto-plays in local mode', async () => {
+    const engineMove = vi.spyOn(api, 'engineMove');
+    vi.spyOn(api, 'submitMove').mockResolvedValue(game({ fen: AFTER_E4, version: 2 }));
+    vi.spyOn(api, 'getGame').mockResolvedValue(game({ mode: 'local' }));
+    const { user } = renderGame('/games/7');
+
+    await clickMove(user, 'e2', 'e4');
+    await waitFor(() => expect(engineMove).not.toHaveBeenCalled());
   });
 });

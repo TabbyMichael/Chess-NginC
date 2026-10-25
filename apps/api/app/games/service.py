@@ -15,7 +15,16 @@ from app.games.errors import IllegalMoveError, InvalidMoveError
 from app.games.rules import ChessRules
 from app.models.game import Game as GameRow
 from app.models.game_move import GameMove as GameMoveRow
+from app.models.point_award import PointAward
+from app.models.user import User
 from app.repositories.game_repository import GameRepository
+
+# Chess.com-style scoring for computer games: every recorded move earns a
+# point and the finished game earns a result bonus. Local hot-seat games
+# award nothing. In computer games the account owner plays White. Training
+# awards are a deliberate side income: below a single game move so grinding
+# drills can never out-earn playing.
+POINT_RULES = {"move": 1, "win": 10, "draw": 5, "loss": 3, "drill": 2, "theme_clear": 5}
 
 
 @dataclass(frozen=True)
@@ -38,7 +47,7 @@ class IllegalMoveRequestError(Exception):
     """UCI unparsable, illegal, or bad mode/claim (mapped to 422)."""
 
 
-def _require_version(game: GameRow, expected_version: int) -> None:
+def require_version(game: GameRow, expected_version: int) -> None:
     """Reject writes based on a stale client snapshot (optimistic concurrency)."""
     if game.version != expected_version:
         raise StaleVersionError(
@@ -58,19 +67,153 @@ def _require_game(repo: GameRepository, game_id: int, user_id: int) -> GameRow:
     return game
 
 
-def _require_active(game: GameRow) -> None:
+def require_active(game: GameRow) -> None:
     if game.status != GameStatus.ACTIVE.value:
         raise GameFinishedError(f"Game is {game.status}")
 
 
-def _sync_status(repo: GameRepository, game: GameRow, rules: ChessRules) -> GameRow:
-    """Persist rules-derived terminal status if the position ended the game."""
+def require_not_online(game: GameRow) -> None:
+    """Online games mutate only through the /online endpoints (two-sided
+    turn/award semantics do not fit the single-owner game routes)."""
+    if game.mode == GameMode.ONLINE.value:
+        raise IllegalMoveRequestError("Use the online endpoints for online games")
+
+
+def _record(
+    db: Session,
+    user_id: int,
+    delta: int,
+    reason: str,
+    *,
+    game_id: int | None = None,
+    move_number: int | None = None,
+    slot_key: str | None = None,
+) -> bool:
+    """Insert one award, bump the running total, commit. Returns whether written.
+
+    Deduped on whichever identity applies: game move slots by
+    ``(game_id, 'move', move_number)``, gameless awards by ``(user_id, reason,
+    slot_key)``. Re-awarding a filled slot is a silent no-op (returns False), so
+    undo/replay and repeat solves cannot farm points.
+    """
+    if slot_key is not None:
+        existing = db.execute(
+            select(PointAward).where(
+                PointAward.user_id == user_id,
+                PointAward.reason == reason,
+                PointAward.slot_key == slot_key,
+            )
+        ).scalar_one_or_none()
+    elif game_id is not None and move_number is not None:
+        existing = db.execute(
+            select(PointAward).where(
+                PointAward.game_id == game_id,
+                PointAward.reason == "move",
+                PointAward.move_number == move_number,
+            )
+        ).scalar_one_or_none()
+    else:
+        existing = None
+    if existing is not None:
+        return False
+    db.add(
+        PointAward(
+            user_id=user_id,
+            game_id=game_id,
+            delta=delta,
+            reason=reason,
+            move_number=move_number,
+            slot_key=slot_key,
+        )
+    )
+    user = db.get(User, user_id)
+    if user is not None:
+        user.points += delta
+    db.commit()
+    return True
+
+
+def award_points(
+    db: Session, user_id: int, game: GameRow, reason: str, move_number: int | None = None
+) -> None:
+    """Record a point award for one user and bump their running total.
+
+    Move awards are idempotent per (game, move slot), so undo-then-replay
+    cannot farm extra points. Callers decide which games/modes earn points
+    (shared by the computer and online services, online-plan §4).
+    """
+    _record(db, user_id, POINT_RULES[reason], reason, game_id=game.id, move_number=move_number)
+
+
+def award_ledger(db: Session, user_id: int, reason: str, slot_key: str) -> int:
+    """Award gameless points (a solved drill, a cleared theme), deduped on slot.
+
+    Returns the delta actually granted (0 when the slot had already been paid),
+    which the training service reports back so the reveal shows an honest number.
+    """
+    delta = POINT_RULES[reason]
+    return delta if _record(db, user_id, delta, reason, slot_key=slot_key) else 0
+
+
+def apply_and_store_move(
+    db: Session, repo: GameRepository, game: GameRow, uci: str, expected_version: int
+) -> tuple[ChessRules, GameRow, int]:
+    """The shared move kernel: validate UCI, store the move, bump FEN/version.
+
+    Callers must have loaded ``game`` and enforced active + version guards.
+    Persistence goes through the row's owner (``game.user_id`` mirrors White
+    for online games, so the repository's ownership filter always matches).
+    Returns the applied rules, the updated row, and the move number (§12).
+    """
+    rules = ChessRules(game.fen)
+    try:
+        move = rules.apply_move(uci)
+    except (InvalidMoveError, IllegalMoveError) as exc:
+        raise IllegalMoveRequestError(str(exc)) from exc
+    # Version-guarded update FIRST: a lost race raises 409 without leaving an
+    # orphan GameMove row behind (two humans can now write the same row).
+    updated = repo.update_fen(game.id, game.user_id, rules.fen, expected_version)
+    if updated is None:
+        raise StaleVersionError(f"Game {game.id} changed; expected version {expected_version}")
+    move_number = len(repo.get_moves(game.id, game.user_id)) + 1
+    repo.add_move(game.id, game.user_id, uci=move.uci, san=move.san, move_number=move_number)
+    return rules, updated, move_number
+
+
+def sync_status(db: Session, repo: GameRepository, game: GameRow, rules: ChessRules) -> GameRow:
+    """Persist rules-derived terminal status and award result points once.
+
+    The active→terminal transition is the single awards path for both computer
+    and online games (undo/replay cannot re-trigger it, online-plan §12).
+    """
     derived = rules.status()
-    if derived != GameStatus.ACTIVE and game.status == GameStatus.ACTIVE.value:
-        updated = repo.update_status(game.id, game.user_id, derived.value)
-        assert updated is not None
-        return updated
-    return game
+    if derived == GameStatus.ACTIVE or game.status != GameStatus.ACTIVE.value:
+        return game
+    updated = repo.update_status(game.id, game.user_id, derived.value)
+    if updated is None:
+        # Lost the active→terminal race (opponent resigned/drew concurrently,
+        # or a parallel finisher got here first): awards belong to the
+        # transition that actually happened — record nothing twice.
+        refreshed = repo.get_by_id(game.id, game.user_id)
+        return refreshed if refreshed is not None else game
+    mated_is_white = rules.fen.split(" ")[1] == "w"  # side to move is the mated side
+    if updated.mode == GameMode.COMPUTER.value:
+        # In checkmate the side TO MOVE is the loser; our user plays White.
+        if derived == GameStatus.CHECKMATE:
+            award_points(db, updated.user_id, updated, "loss" if mated_is_white else "win")
+        elif derived in (GameStatus.STALEMATE, GameStatus.DRAW):
+            award_points(db, updated.user_id, updated, "draw")
+    elif updated.mode == GameMode.ONLINE.value:
+        white, black = updated.white_user_id, updated.black_user_id
+        if derived == GameStatus.CHECKMATE and white is not None and black is not None:
+            winner, loser = (black, white) if mated_is_white else (white, black)
+            award_points(db, winner, updated, "win")
+            award_points(db, loser, updated, "loss")
+        elif derived in (GameStatus.STALEMATE, GameStatus.DRAW):
+            for seat in (white, black):
+                if seat is not None:
+                    award_points(db, seat, updated, "draw")
+    return updated
 
 
 def create_game(db: Session, user_id: int, mode: str) -> GameRow:
@@ -79,6 +222,9 @@ def create_game(db: Session, user_id: int, mode: str) -> GameRow:
         game_mode = GameMode(mode)
     except ValueError as exc:
         raise IllegalMoveRequestError(f"Invalid mode: {mode!r}") from exc
+    if game_mode is GameMode.ONLINE:
+        # Online games need two paired seats; only the lobby may create them.
+        raise IllegalMoveRequestError("Online games are created through the lobby queue")
     return GameRepository(db).create(user_id=user_id, mode=game_mode.value, fen=STARTING_FEN)
 
 
@@ -101,18 +247,13 @@ def submit_move(
     """Validate a UCI move, persist it, bump version (API-008/018/019)."""
     repo = GameRepository(db)
     game = _require_game(repo, game_id, user_id)
-    _require_active(game)
-    _require_version(game, expected_version)
-    rules = ChessRules(game.fen)
-    try:
-        move = rules.apply_move(uci)
-    except (InvalidMoveError, IllegalMoveError) as exc:
-        raise IllegalMoveRequestError(str(exc)) from exc
-    move_number = len(repo.get_moves(game_id, user_id)) + 1
-    repo.add_move(game_id, user_id, uci=move.uci, san=move.san, move_number=move_number)
-    updated = repo.update_fen(game_id, user_id, rules.fen, expected_version)
-    assert updated is not None  # version checked above
-    updated = _sync_status(repo, updated, rules)
+    require_active(game)
+    require_version(game, expected_version)
+    require_not_online(game)
+    rules, updated, move_number = apply_and_store_move(db, repo, game, uci, expected_version)
+    if updated.mode == GameMode.COMPUTER.value:
+        award_points(db, updated.user_id, updated, "move", move_number)
+    updated = sync_status(db, repo, updated, rules)
     return GameDetail(game=updated, moves=repo.get_moves(game_id, user_id))
 
 
@@ -120,8 +261,9 @@ def undo_move(db: Session, game_id: int, user_id: int, expected_version: int) ->
     """Undo the last move, restoring FEN (API-009)."""
     repo = GameRepository(db)
     game = _require_game(repo, game_id, user_id)
-    _require_active(game)
-    _require_version(game, expected_version)
+    require_active(game)
+    require_version(game, expected_version)
+    require_not_online(game)
     moves = repo.get_moves(game_id, user_id)
     if not moves:
         raise IllegalMoveRequestError("No moves to undo")
@@ -139,9 +281,13 @@ def resign_game(db: Session, game_id: int, user_id: int) -> GameDetail:
     """Mark an active game resigned (API-010)."""
     repo = GameRepository(db)
     game = _require_game(repo, game_id, user_id)
-    _require_active(game)
+    require_active(game)
+    require_not_online(game)
     updated = repo.update_status(game.id, user_id, GameStatus.RESIGNED.value)
-    assert updated is not None
+    if updated is None:
+        raise GameFinishedError(f"Game {game_id} already finished")
+    if updated.mode == GameMode.COMPUTER.value:
+        award_points(db, updated.user_id, updated, "loss")
     return GameDetail(game=updated, moves=repo.get_moves(game_id, user_id))
 
 
@@ -151,7 +297,8 @@ def claim_draw(db: Session, game_id: int, user_id: int) -> GameDetail:
 
     repo = GameRepository(db)
     game = _require_game(repo, game_id, user_id)
-    _require_active(game)
+    require_active(game)
+    require_not_online(game)
     rules = ChessRules(game.fen)
     board = chess.Board(game.fen)
     if not (
@@ -163,7 +310,10 @@ def claim_draw(db: Session, game_id: int, user_id: int) -> GameDetail:
     ):
         raise IllegalMoveRequestError("Position does not support a draw claim")
     updated = repo.update_status(game.id, user_id, GameStatus.DRAW.value)
-    assert updated is not None
+    if updated is None:
+        raise GameFinishedError(f"Game {game_id} already finished")
+    if updated.mode == GameMode.COMPUTER.value:
+        award_points(db, updated.user_id, updated, "draw")
     return GameDetail(game=updated, moves=repo.get_moves(game_id, user_id))
 
 
@@ -175,54 +325,37 @@ def request_engine_move(
     max_depth: int | None = None,
     max_time_ms: int | None = None,
 ) -> GameDetail:
-    """Ask the custom engine for a move and persist it (API-012)."""
+    """Ask real Stockfish for a move and persist it (API-012, PLAY-001)."""
     import chess
 
-    from app.engine.domain import EngineConfig
-    from app.engine.engine import ChessEngine
+    from app.engine.opponent import stockfish_move
     from app.games.domain import Color
     from app.models.engine_run import EngineRun
 
     repo = GameRepository(db)
     game = _require_game(repo, game_id, user_id)
-    _require_active(game)
+    require_active(game)
     if game.mode != GameMode.COMPUTER.value:
         raise IllegalMoveRequestError("Engine moves require a computer game")
-    _require_version(game, expected_version)
+    require_version(game, expected_version)
     board = chess.Board(game.fen)
     if board.is_game_over():
         raise GameFinishedError("Game is over")
     for_color = Color.WHITE if board.turn == chess.WHITE else Color.BLACK
-    config = EngineConfig()
-    if max_depth is not None:
-        config = EngineConfig(
-            difficulty=config.difficulty, max_depth=max_depth, max_time_ms=config.max_time_ms
-        )
-    if max_time_ms is not None:
-        config = EngineConfig(
-            difficulty=config.difficulty, max_depth=config.max_depth, max_time_ms=max_time_ms
-        )
-    result = ChessEngine(config).search(board, for_color)
-    rules = ChessRules(game.fen)
-    try:
-        move = rules.apply_move(result.best_move)
-    except (InvalidMoveError, IllegalMoveError) as exc:
-        raise IllegalMoveRequestError(f"Engine returned bad move: {exc}") from exc
-    move_number = len(repo.get_moves(game_id, user_id)) + 1
-    repo.add_move(game_id, user_id, uci=move.uci, san=move.san, move_number=move_number)
+    move = stockfish_move(board, for_color, max_depth, max_time_ms)
+    pre_fen = game.fen  # the kernel mutates the row's FEN in place
+    rules, updated, _ = apply_and_store_move(db, repo, game, move.uci, expected_version)
     db.add(
         EngineRun(
             game_id=game.id,
-            fen=game.fen,
+            fen=pre_fen,
             best_move=move.uci,
-            score=result.score,
-            depth=result.depth,
-            nodes_searched=result.nodes_searched,
-            time_ms=result.time_ms,
+            score=move.score_cp,
+            depth=move.depth,
+            nodes_searched=move.nodes,
+            time_ms=move.time_ms,
         )
     )
     db.commit()
-    updated = repo.update_fen(game_id, user_id, rules.fen, expected_version)
-    assert updated is not None
-    updated = _sync_status(repo, updated, rules)
+    updated = sync_status(db, repo, updated, rules)
     return GameDetail(game=updated, moves=repo.get_moves(game_id, user_id))

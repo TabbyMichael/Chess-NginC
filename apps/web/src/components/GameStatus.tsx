@@ -18,9 +18,9 @@ export default function GameStatusBanner({
   inCheck: boolean;
 }) {
   return (
-    <div role="status" aria-live="polite" className={`game-status ${status}`}>
-      <strong>{LABELS[status]}</strong>
-      {status === 'active' && inCheck && <span> — check!</span>}
-    </div>
+    <span role="status" aria-live="polite" className={`status-pill ${status}`}>
+      {LABELS[status]}
+      {status === 'active' && inCheck && ' — check!'}
+    </span>
   );
 }

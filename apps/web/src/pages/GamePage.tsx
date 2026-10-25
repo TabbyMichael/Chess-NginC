@@ -1,16 +1,30 @@
 /**
  * Game page (WEB-010..019, WEB-024/025): board, move submission, undo,
  * resign, draw-claim, engine moves, resume via GET game.
+ * Board-first layout: compact header, player bars around the board,
+ * side panel with move history and grouped actions. Destructive actions
+ * (resign, reset) ask for confirmation first.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useLocation, useParams } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, Navigate, useLocation, useParams } from 'react-router-dom';
+import { Coins } from 'lucide-react';
 
 import Chessboard from '../components/Chessboard';
 import GameStatusBanner from '../components/GameStatus';
 import MoveHistory from '../components/MoveHistory';
+import PlayerInfo from '../components/PlayerInfo';
+import SoundToggle from '../components/SoundToggle';
+import ConfirmDialog from '../components/ui/Modal';
+import { Button } from '../components/ui/Button';
+import { Card } from '../components/ui/Card';
+import { useAchievementRide } from '../app/useAchievementRide';
 import { ApiError, api } from '../lib/api-client';
-import { capturedPieces } from '../lib/chess';
+import { capturedPieces, materialBalance, sideToMove } from '../lib/chess';
+import { emitError, emitSelect } from '../lib/game-events';
+import { useGameFeedback } from '../lib/useGameFeedback';
 import type { GameResponse } from '../lib/api-types';
+
+type PendingConfirm = 'resign' | 'reset' | null;
 
 export default function GamePage() {
   const { id } = useParams<{ id: string }>();
@@ -22,6 +36,10 @@ export default function GamePage() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm>(null);
+  const [points, setPoints] = useState<number | null>(null);
+  // Game version for which the engine reply was already auto-requested.
+  const autoEngineVersion = useRef<number | null>(null);
 
   const gameId = Number(id);
   const badId = !Number.isFinite(gameId);
@@ -46,7 +64,7 @@ export default function GamePage() {
   }, [gameId, badId]);
 
   const run = useCallback(
-    async (fn: (g: GameResponse) => Promise<GameResponse>) => {
+    async (fn: (g: GameResponse) => Promise<GameResponse>, opts?: { move?: boolean }) => {
       if (!game || busy) return;
       setBusy(true);
       setError(null);
@@ -62,7 +80,12 @@ export default function GamePage() {
             /* keep existing state on refetch failure */
           }
         }
-        setError(err instanceof ApiError ? err.message : 'Action failed');
+        // A rejected move is felt, not read: error sound, no banner.
+        if (opts?.move && err instanceof ApiError && err.status === 422) {
+          emitError();
+        } else {
+          setError(err instanceof ApiError ? err.message : 'Action failed');
+        }
       } finally {
         setBusy(false);
       }
@@ -74,20 +97,83 @@ export default function GamePage() {
     (from: string, to: string, promotion?: string) => {
       // UCI promotion moves always carry a piece letter; the picker defaults to 'q'.
       const uci = `${from}${to}${promotion ?? ''}`;
-      void run((g) => api.submitMove(gameId, { uci, expected_version: g.version }));
+      void run((g) => api.submitMove(gameId, { uci, expected_version: g.version }), {
+        move: true,
+      });
     },
     [run, gameId],
   );
+
+  // Engine answers automatically: whenever a computer game is live and it is
+  // Black's turn (after the player's move, on resume, or after a 409 resync),
+  // request one engine move per game version. The manual button stays as a
+  // fallback if the automatic request fails.
+  useEffect(() => {
+    if (!game || busy) return;
+    const engineToMove =
+      game.mode === 'computer' && game.status === 'active' && sideToMove(game.fen) === 'b';
+    if (!engineToMove) return;
+    if (autoEngineVersion.current === game.version) return;
+    autoEngineVersion.current = game.version;
+    void run((g) =>
+      api.engineMove(gameId, {
+        expected_version: g.version,
+        max_depth: initialDepth,
+        max_time_ms: 2000,
+      }),
+    );
+  }, [game, busy, run, gameId, initialDepth]);
+
+  // Keep the points display live: refresh after each game-state change.
+  const lastPointsVersion = useRef<number | null>(null);
+  useEffect(() => {
+    if (!game || game.mode !== 'computer') return;
+    if (lastPointsVersion.current === game.version) return;
+    lastPointsVersion.current = game.version;
+    void api
+      .me()
+      .then((u) => setPoints(u.points))
+      .catch(() => {
+        /* points are cosmetic; keep the previous value on failure */
+      });
+  }, [game]);
+
+  // Move feedback (sound + haptics) for the player's, engine's, and any new plies.
+  useGameFeedback(game);
+  // Achievements unlocked by the action that produced this state (ACH-006).
+  useAchievementRide(game);
+
+  const handleReset = useCallback(async () => {
+    if (!game) return;
+    setPendingConfirm(null);
+    setBusy(true);
+    setError(null);
+    try {
+      let current = game;
+      while (current.moves.length > 0) {
+        const next = await api.undoMove(gameId, { expected_version: current.version });
+        if (next.moves.length >= current.moves.length) break;
+        current = next;
+      }
+      setGame(current);
+      setSelected(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Reset failed');
+    } finally {
+      setBusy(false);
+    }
+  }, [game, gameId]);
 
   // Hooks must run unconditionally, so derive captures from `game?.fen`.
   const captures = useMemo(
     () => (game ? capturedPieces(game.fen) : { capturedByWhite: [], capturedByBlack: [] }),
     [game],
   );
+  const material = useMemo(() => (game ? materialBalance(game.fen) : 0), [game]);
 
   if (badId) {
     return (
-      <main>
+      <main id="main-content">
         <p role="alert" className="error">
           Invalid game id.
         </p>
@@ -95,10 +181,17 @@ export default function GamePage() {
       </main>
     );
   }
-  if (loading) return <p role="status">Loading game…</p>;
+  if (loading)
+    return (
+      <main id="main-content">
+        <p role="status" className="loading-state">
+          Loading game…
+        </p>
+      </main>
+    );
   if (error && !game)
     return (
-      <main>
+      <main id="main-content">
         <p role="alert" className="error">
           {error}
         </p>
@@ -106,121 +199,194 @@ export default function GamePage() {
       </main>
     );
   if (!game) return null;
+  // Online games can only be played through /online/:id (the legacy routes
+  // refuse them server-side); redirect stale deep links to the right board.
+  if (game.mode === 'online') {
+    return <Navigate to={`/online/${game.id}`} replace />;
+  }
 
   const inCheck = game.fen.includes('+') || game.status === 'checkmate';
   const finished = game.status !== 'active';
+  const turn = sideToMove(game.fen);
+  const noMoves = game.moves.length === 0;
 
   return (
-    <main className="game-page">
-      <Link to="/">← All games</Link>
-      <h1>
-        Game #{game.id} ({game.mode})
-      </h1>
-      <GameStatusBanner status={game.status} inCheck={inCheck} />
+    <main id="main-content" className="game-page">
+      <header className="game-header">
+        <Link to="/" className="back-link">
+          ← All games
+        </Link>
+        <h1 className="game-title">Game #{game.id}</h1>
+        <div className="game-tags">
+          <span className="badge">
+            {game.mode === 'computer'
+              ? `Player vs Computer · depth ${initialDepth}`
+              : 'Two players'}
+          </span>
+          <GameStatusBanner status={game.status} inCheck={inCheck} />
+          {finished && !noMoves && (
+            <Link to={`/games/${game.id}/review`} className="badge badge-accent">
+              Review game
+            </Link>
+          )}
+        </div>
+      </header>
       {error && (
-        <p role="alert" className="error">
+        <p role="alert" className="error" style={{ marginBottom: 'var(--space-4)' }}>
           {error}
         </p>
       )}
       <div className="game-layout">
-        <Chessboard
-          fen={game.fen}
-          status={game.status}
-          selected={selected}
-          onSelect={setSelected}
-          onMove={handleMove}
-          disabled={busy}
-        />
-        <aside aria-label="game panel">
-          <h2>Moves</h2>
-          <MoveHistory moves={game.moves} />
-          <section aria-label="captured pieces">
-            <p className="hint">Captured by White</p>
-            <p className="captures" aria-label="captured by white">
-              {captures.capturedByWhite.join(' ') || '—'}
-            </p>
-            <p className="hint">Captured by Black</p>
-            <p className="captures" aria-label="captured by black">
-              {captures.capturedByBlack.join(' ') || '—'}
-            </p>
-          </section>
-          <div className="controls">
-            <button
-              type="button"
-              disabled={busy || finished || game.moves.length === 0}
-              onClick={() => void run((g) => api.undoMove(gameId, { expected_version: g.version }))}
-            >
-              Undo
-            </button>
-            <button
-              type="button"
-              disabled={busy || finished || game.moves.length === 0}
-              title="Undo every move to restart this game"
-              onClick={async () => {
-                if (!game) return;
-                setBusy(true);
-                setError(null);
-                try {
-                  // The API has no bulk-reset; undo until the server reports
-                  // an empty move list (WEB-019). Loop on the refetched state,
-                  // not the original snapshot.
-                  let current = game;
-                  while (current.moves.length > 0) {
-                    const next = await api.undoMove(gameId, {
-                      expected_version: current.version,
-                    });
-                    if (next.moves.length >= current.moves.length) break; // no progress
-                    current = next;
-                  }
-                  setGame(current);
-                  setSelected(null);
-                } catch (err) {
-                  setError(err instanceof ApiError ? err.message : 'Reset failed');
-                } finally {
-                  setBusy(false);
-                }
+        <div className="board-column">
+          <PlayerInfo
+            color="black"
+            isTurn={turn === 'b'}
+            finished={finished}
+            captured={captures.capturedByBlack}
+            materialBalance={material}
+          />
+          <div className="board-frame">
+            <Chessboard
+              fen={game.fen}
+              status={game.status}
+              selected={selected}
+              onSelect={(square) => {
+                if (square) emitSelect();
+                setSelected(square);
               }}
-            >
-              Reset to start
-            </button>
-            <button
-              type="button"
-              disabled={busy || finished}
-              onClick={() => void run(() => api.resignGame(gameId))}
-            >
-              Resign
-            </button>
-            <button
-              type="button"
-              disabled={busy || finished}
-              onClick={() => void run(() => api.claimDraw(gameId))}
-            >
-              Claim draw
-            </button>
-            {game.mode === 'computer' && (
-              <button
-                type="button"
-                disabled={busy || finished}
-                onClick={() =>
-                  void run((g) =>
-                    api.engineMove(gameId, {
-                      expected_version: g.version,
-                      max_depth: initialDepth,
-                      max_time_ms: 2000,
-                    }),
-                  )
-                }
-              >
-                Engine move (depth {initialDepth})
-              </button>
-            )}
+              onMove={handleMove}
+              disabled={busy}
+              lastMove={
+                game.moves.length > 0
+                  ? {
+                      from: game.moves[game.moves.length - 1].uci.slice(0, 2),
+                      to: game.moves[game.moves.length - 1].uci.slice(2, 4),
+                    }
+                  : null
+              }
+              inCheck={inCheck}
+            />
           </div>
-          <p className="hint">
-            Click a piece, then its destination. Promotions ask which piece. The server validates
-            every move.
-          </p>
+          <PlayerInfo
+            color="white"
+            isTurn={turn === 'w'}
+            finished={finished}
+            captured={captures.capturedByWhite}
+            materialBalance={material}
+          />
+        </div>
+        <aside className="game-sidebar" aria-label="game panel">
+          {game.mode === 'computer' && (
+            <Card>
+              <div className="card-title">
+                <h2>Points</h2>
+                <span className="badge badge-accent">
+                  <Coins size={13} aria-hidden="true" />
+                  {points === null ? '—' : points.toLocaleString()}
+                </span>
+              </div>
+              <p className="points-rules">
+                +1 per move · win +10 · draw +5 · loss +3. Every move is recorded in the list above.
+              </p>
+            </Card>
+          )}
+          <Card>
+            <h2>Moves</h2>
+            <MoveHistory moves={game.moves} />
+          </Card>
+          <Card>
+            <h2>Actions</h2>
+            <div className="game-actions">
+              <SoundToggle />
+              <div className="action-row">
+                <Button
+                  variant="ghost"
+                  onClick={() =>
+                    void run((g) => api.undoMove(gameId, { expected_version: g.version }))
+                  }
+                  disabled={busy || finished || noMoves}
+                  title={
+                    finished ? 'The game is over' : noMoves ? 'Nothing to undo yet' : undefined
+                  }
+                >
+                  Undo
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => void run(() => api.claimDraw(gameId))}
+                  disabled={busy || finished}
+                  title={finished ? 'The game is over' : undefined}
+                >
+                  Claim draw
+                </Button>
+              </div>
+              {game.mode === 'computer' && (
+                <Button
+                  variant="primary"
+                  onClick={() =>
+                    void run((g) =>
+                      api.engineMove(gameId, {
+                        expected_version: g.version,
+                        max_depth: initialDepth,
+                        max_time_ms: 2000,
+                      }),
+                    )
+                  }
+                  disabled={busy || finished}
+                  title={finished ? 'The game is over' : undefined}
+                >
+                  Engine move (depth {initialDepth})
+                </Button>
+              )}
+              <div className="action-row">
+                <Button
+                  variant="ghost"
+                  onClick={() => setPendingConfirm('reset')}
+                  disabled={busy || finished || noMoves}
+                  title={
+                    finished ? 'The game is over' : noMoves ? 'Already at the start' : undefined
+                  }
+                >
+                  Reset to start
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={() => setPendingConfirm('resign')}
+                  disabled={busy || finished}
+                  title={finished ? 'The game is over' : undefined}
+                >
+                  Resign
+                </Button>
+              </div>
+            </div>
+            <p className="hint" style={{ marginTop: 'var(--space-4)' }}>
+              Click a piece, then its destination. Promotions ask which piece.
+            </p>
+          </Card>
         </aside>
       </div>
+      {pendingConfirm === 'resign' && (
+        <ConfirmDialog
+          title="Resign this game?"
+          description="Resigning ends the game immediately and cannot be undone."
+          confirmLabel="Resign game"
+          confirmTone="danger"
+          onConfirm={() => {
+            setPendingConfirm(null);
+            void run(() => api.resignGame(gameId));
+          }}
+          onCancel={() => setPendingConfirm(null)}
+        />
+      )}
+      {pendingConfirm === 'reset' && (
+        <ConfirmDialog
+          title="Reset to the starting position?"
+          description="Every move in this game will be undone."
+          confirmLabel="Reset game"
+          onConfirm={() => void handleReset()}
+          onCancel={() => setPendingConfirm(null)}
+        />
+      )}
     </main>
   );
 }

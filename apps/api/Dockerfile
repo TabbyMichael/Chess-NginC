@@ -7,10 +7,21 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /srv/api
 
-# Install runtime deps first for layer caching.
-COPY pyproject.toml README.md ./
+# Real Stockfish opponent (PLAY-001) + review analysis need the binary in the
+# image; provenance is recorded in app/engine/stockfish.py (GPL-3.0, BEN-003).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends stockfish \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install runtime deps first for layer caching — pinned exact versions with
+# --no-deps so the build never float-resolves (a slow PyPI read on the chess
+# sdist failed a prod build; requirements.txt is wheel-only and test-verified).
+# 60s socket timeout + retries so a transient stall cannot fail the build.
+ENV PIP_DEFAULT_TIMEOUT=60
+COPY pyproject.toml README.md requirements.txt ./
+RUN pip install --no-cache-dir --no-deps --retries 5 -r requirements.txt
 COPY app ./app
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir --no-deps .
 
 # Migrations ship with the image; applied as a controlled deploy step (REL-006).
 COPY alembic ./alembic
@@ -19,4 +30,6 @@ COPY alembic.ini ./alembic.ini
 EXPOSE 8000
 
 # Default: migrate then serve. Compose overrides keep this contract.
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# --ws-max-size 4096 bounds WS frames at the server BEFORE buffering, closing
+# oversized floods (TD-012 note: the app-level 4KB cap applies post-read).
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --ws-max-size 4096"]

@@ -1,12 +1,22 @@
 /**
  * Chessboard (WEB-010/011/013/014/027): click-to-select + click-to-move,
- * promotion picker, keyboard operable, turn indicator. Display-only legality:
- * the server is authoritative (invalid moves surface as 422 errors).
+ * drag & drop, promotion picker, keyboard operable, turn indicator.
+ * Selected pieces preview their legal destinations (subtle dots/rings via
+ * chess.js) — a beginner aid only; the server stays authoritative on legality
+ * (invalid moves surface as 422 errors). Coordinates render only on the edge
+ * files/ranks.
  */
-import { useEffect, useMemo, useState } from 'react';
-import type { DragEvent } from 'react';
+import { useEffect, useMemo, useState, type DragEvent } from 'react';
 
-import { allSquares, glyph, isLightSquare, parseFenPlacement, sideToMove } from '../lib/chess';
+import PieceIcon from './PieceIcon';
+import {
+  allSquares,
+  isLightSquare,
+  isLegalPromotion,
+  legalTargets,
+  parseFenPlacement,
+  sideToMove,
+} from '../lib/chess';
 
 type Props = {
   fen: string;
@@ -15,41 +25,55 @@ type Props = {
   onSelect: (square: string | null) => void;
   onMove: (from: string, to: string, promotion?: string) => void;
   disabled?: boolean;
+  lastMove?: { from: string; to: string } | null;
+  inCheck?: boolean;
 };
 
-const PROMOTION_PIECES = ['q', 'r', 'b', 'n'];
+const PROMOTION_PIECE_KINDS = ['q', 'r', 'b', 'n'] as const;
 
-export default function Chessboard({ fen, status, selected, onSelect, onMove, disabled }: Props) {
+function getPieceColor(color: string): 'white' | 'black' {
+  return color === 'w' ? 'white' : 'black';
+}
+
+export default function Chessboard({
+  fen,
+  status,
+  selected,
+  onSelect,
+  onMove,
+  disabled = false,
+  lastMove,
+  inCheck = false,
+}: Props) {
   const board = useMemo(() => parseFenPlacement(fen), [fen]);
   const turn = sideToMove(fen);
-  const [pendingPromotion, setPendingPromotion] = useState<{
-    from: string;
-    to: string;
-  } | null>(null);
+  // Legal-destination preview for the currently selected piece.
+  const hints = useMemo(() => {
+    if (!selected || disabled || status !== 'active') return null;
+    const targets = legalTargets(fen, selected);
+    return targets.length ? new Set(targets) : null;
+  }, [selected, fen, status, disabled]);
+  const [pendingPromotion, setPendingPromotion] = useState<{ from: string; to: string } | null>(
+    null,
+  );
   const [dragOver, setDragOver] = useState<string | null>(null);
-
-  // Cancel any in-flight drag on unmount so stale state never leaks.
   useEffect(() => () => setDragOver(null), []);
-
   const turnLabel =
     status !== 'active' ? `Game over: ${status}` : `Turn: ${turn === 'w' ? 'White' : 'Black'}`;
-
   function isPromotionMove(from: string, to: string): boolean {
-    const piece = board.get(from);
-    if (!piece || piece.kind !== 'p') return false;
-    const toRank = to[1];
-    return (piece.color === 'w' && toRank === '8') || (piece.color === 'b' && toRank === '1');
+    // Legal promotion only: a pawn pointing at the back rank from a square it
+    // cannot reach in one move must NOT open the picker (the server rejects it).
+    return isLegalPromotion(fen, from, to);
   }
-
   function handleSquareClick(square: string) {
     if (disabled || status !== 'active') return;
-    if (pendingPromotion) return; // must pick a piece first
+    if (pendingPromotion) return;
     if (selected === null) {
       if (board.has(square)) onSelect(square);
       return;
     }
     if (selected === square) {
-      onSelect(null); // deselect
+      onSelect(null);
       return;
     }
     if (isPromotionMove(selected, square)) {
@@ -59,7 +83,6 @@ export default function Chessboard({ fen, status, selected, onSelect, onMove, di
     onMove(selected, square);
     onSelect(null);
   }
-
   function handleKey(square: string, key: string) {
     if (key === 'Enter' || key === ' ') {
       handleSquareClick(square);
@@ -68,8 +91,6 @@ export default function Chessboard({ fen, status, selected, onSelect, onMove, di
       setPendingPromotion(null);
     }
   }
-
-  /** Drag start selects the piece; drop on a square attempts the move (WEB-012). */
   function handleDragStart(square: string, event: DragEvent<HTMLButtonElement>) {
     if (disabled || status !== 'active') {
       event.preventDefault();
@@ -77,12 +98,10 @@ export default function Chessboard({ fen, status, selected, onSelect, onMove, di
     }
     onSelect(square);
   }
-
   function handleDragOver(square: string, event: DragEvent<HTMLButtonElement>) {
-    event.preventDefault(); // allow drop
+    event.preventDefault();
     if (dragOver !== square) setDragOver(square);
   }
-
   function handleDrop(to: string, event: DragEvent<HTMLButtonElement>) {
     event.preventDefault();
     setDragOver(null);
@@ -96,82 +115,124 @@ export default function Chessboard({ fen, status, selected, onSelect, onMove, di
     onSelect(null);
   }
 
+  const lastFrom = lastMove?.from;
+  const lastTo = lastMove?.to;
   return (
     <section aria-label="chessboard">
-      <p role="status" aria-live="polite">
+      <p role="status" aria-live="polite" className="board-status">
         {turnLabel}
+        {disabled && status === 'active' && <span className="busy"> · updating…</span>}
       </p>
       <div
-        className="board"
+        className="board-wrapper"
         role="grid"
         aria-label={`Chess position, ${turn === 'w' ? 'white' : 'black'} to move`}
       >
-        {allSquares().map((square) => {
-          const piece = board.get(square);
-          const isSelected = selected === square;
-          const isDraggable = !disabled && status === 'active' && Boolean(piece);
-          return (
-            <button
-              key={square}
-              type="button"
-              role="gridcell"
-              aria-label={`${square}${piece ? `, ${piece.color === 'w' ? 'white' : 'black'} ${piece.kind}` : ', empty'}${isSelected ? ', selected' : ''}`}
-              aria-pressed={isSelected}
-              draggable={isDraggable}
-              className={[
-                'square',
-                isLightSquare(square) ? 'light' : 'dark',
-                isSelected ? 'selected' : '',
-                dragOver === square ? 'dragover' : '',
-              ]
-                .filter(Boolean)
-                .join(' ')}
-              onClick={() => handleSquareClick(square)}
-              onKeyDown={(e) => handleKey(square, e.key)}
-              onDragStart={(e) => handleDragStart(square, e)}
-              onDragOver={(e) => handleDragOver(square, e)}
-              onDragLeave={() => setDragOver((cur) => (cur === square ? null : cur))}
-              onDrop={(e) => handleDrop(square, e)}
-              disabled={disabled}
-            >
-              <span aria-hidden="true" className={piece ? `piece ${piece.color}` : ''}>
-                {piece ? glyph(piece) : ''}
-              </span>
-              <span className="coord" aria-hidden="true">
-                {square}
-              </span>
-            </button>
-          );
-        })}
+        <div className="board">
+          {allSquares().map((square) => {
+            const piece = board.get(square);
+            const isSelected = selected === square;
+            const isDraggable = !disabled && status === 'active' && Boolean(piece);
+            const hint = hints?.has(square) ? (piece ? 'hint-capture' : 'hint-target') : '';
+            return (
+              <button
+                key={square}
+                type="button"
+                role="gridcell"
+                aria-label={`${square}${piece ? `, ${piece.color === 'w' ? 'white' : 'black'} ${piece.kind}` : ', empty'}${isSelected ? ', selected' : ''}`}
+                aria-pressed={isSelected}
+                draggable={isDraggable}
+                className={[
+                  'square',
+                  isLightSquare(square) ? 'light' : 'dark',
+                  isSelected ? 'selected' : '',
+                  lastFrom === square || lastTo === square ? 'last-move' : '',
+                  inCheck && piece?.kind === 'k' ? 'in-check' : '',
+                  dragOver === square ? 'dragover' : '',
+                  hint,
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+                onClick={() => handleSquareClick(square)}
+                onKeyDown={(e) => handleKey(square, e.key)}
+                onDragStart={(e) => handleDragStart(square, e)}
+                onDragOver={(e) => handleDragOver(square, e)}
+                onDragLeave={() => setDragOver((cur) => (cur === square ? null : cur))}
+                onDrop={(e) => handleDrop(square, e)}
+                disabled={disabled}
+              >
+                {piece && (
+                  <PieceIcon
+                    kind={piece.kind}
+                    color={piece.color}
+                    className={`piece ${getPieceColor(piece.color)}`}
+                  />
+                )}
+                {square[0] === 'a' && (
+                  <span className="coord coord-rank" aria-hidden="true">
+                    {square[1]}
+                  </span>
+                )}
+                {square[1] === '1' && (
+                  <span className="coord coord-file" aria-hidden="true">
+                    {square[0]}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
       </div>
       {pendingPromotion && (
-        <div role="dialog" aria-label="choose promotion piece" className="promotion-picker">
-          <p>
-            Promote pawn {pendingPromotion.from} → {pendingPromotion.to} to:
-          </p>
-          {PROMOTION_PIECES.map((kind) => (
+        <div
+          className="promotion-overlay"
+          onClick={() => {
+            setPendingPromotion(null);
+            onSelect(null);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-label="choose promotion piece"
+            className="promotion-picker"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p>
+              Promote {pendingPromotion.from} → {pendingPromotion.to} to:
+            </p>
+            <div className="promotion-grid">
+              {PROMOTION_PIECE_KINDS.map((kind) => (
+                <button
+                  key={kind}
+                  type="button"
+                  aria-label={`promote to ${kind}`}
+                  onClick={() => {
+                    onMove(pendingPromotion.from, pendingPromotion.to, kind);
+                    setPendingPromotion(null);
+                    onSelect(null);
+                  }}
+                >
+                  <PieceIcon
+                    kind={kind}
+                    color={board.get(pendingPromotion.from)?.color ?? 'w'}
+                    className={`piece ${
+                      board.get(pendingPromotion.from)?.color === 'w' ? 'white' : 'black'
+                    }`}
+                  />
+                </button>
+              ))}
+            </div>
             <button
-              key={kind}
               type="button"
-              aria-label={`promote to ${kind}`}
+              className="btn btn-ghost btn-small"
               onClick={() => {
-                onMove(pendingPromotion.from, pendingPromotion.to, kind);
                 setPendingPromotion(null);
                 onSelect(null);
               }}
             >
-              {kind.toUpperCase()}
+              Cancel
             </button>
-          ))}
-          <button
-            type="button"
-            onClick={() => {
-              setPendingPromotion(null);
-              onSelect(null);
-            }}
-          >
-            Cancel
-          </button>
+          </div>
         </div>
       )}
     </section>

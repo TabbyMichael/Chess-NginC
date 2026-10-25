@@ -17,6 +17,7 @@ class GameMode(StrEnum):
 
     LOCAL = "local"  # two players on the same device
     COMPUTER = "computer"  # human vs. engine
+    ONLINE = "online"  # two humans on separate devices (server-authoritative)
 
 
 class Color(StrEnum):

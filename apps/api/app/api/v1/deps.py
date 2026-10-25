@@ -2,7 +2,7 @@
 
 import time
 from collections import defaultdict
-from collections.abc import Generator
+from collections.abc import Generator, Mapping
 from typing import Annotated
 
 from fastapi import Cookie, Depends, HTTPException, Request, status
@@ -17,6 +17,12 @@ SESSION_COOKIE = "session_token"
 # In-memory per-client rate limiter for auth endpoints (single-process dev
 # default; replace with Redis for multi-worker production).
 _rate_buckets: defaultdict[str, list[float]] = defaultdict(list)
+# Separate bucket for online move submissions (online-plan §6.1), keyed by
+# user id — mirrors the auth limiter; same single-process caveat.
+_move_buckets: defaultdict[int, list[float]] = defaultdict(list)
+# Coach assistant asks (Phase 11), keyed by user id — an LLM/what-if question is
+# more expensive than a page read, so it gets its own budget. Same caveat.
+_assistant_buckets: defaultdict[int, list[float]] = defaultdict(list)
 
 
 def rate_limit_auth(request: Request) -> None:
@@ -37,6 +43,23 @@ def rate_limit_auth(request: Request) -> None:
 def reset_rate_limits() -> None:
     """Clear rate-limit state (used by tests)."""
     _rate_buckets.clear()
+    _move_buckets.clear()
+    _assistant_buckets.clear()
+
+
+def same_origin_ok(headers: Mapping[str, str]) -> bool:
+    """Return whether an Origin/Referer header value passes the allowlist.
+
+    Shared by the HTTP dependency and the WebSocket handshake (CSWSRF).
+    Requests without either header (curl, tests) pass, like `enforce_same_origin`.
+    """
+    origin = headers.get("origin")
+    referer = headers.get("referer")
+    if not origin and not referer:
+        return True
+    allowed = {o.strip().rstrip("/") for o in settings.cors_origins.split(",") if o.strip()}
+    candidate = (origin or referer or "").rstrip("/")
+    return candidate in allowed
 
 
 def enforce_same_origin(request: Request) -> None:
@@ -47,14 +70,7 @@ def enforce_same_origin(request: Request) -> None:
     either header (curl, tests, non-browser clients) are allowed through —
     they cannot be forged cross-site form/fetch submissions.
     """
-    origin = request.headers.get("origin")
-    referer = request.headers.get("referer")
-    if not origin and not referer:
-        return
-    allowed = {o.strip() for o in settings.cors_origins.split(",") if o.strip()}
-    candidate = origin or referer
-    assert candidate is not None
-    if candidate.rstrip("/") not in {o.rstrip("/") for o in allowed}:
+    if not same_origin_ok(request.headers):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Cross-origin request forbidden",
@@ -86,3 +102,49 @@ def get_current_user(
             detail="Not authenticated",
         )
     return user
+
+
+def check_move_rate(user_id: int) -> None:
+    """Allow N move submissions per minute per user (online-plan §6.1).
+
+    Shared by the REST dependency and the WebSocket dispatch so choosing a
+    transport cannot bypass the limit.
+    """
+    now = time.monotonic()
+    window_start = now - 60.0
+    hits = [t for t in _move_buckets[user_id] if t > window_start]
+    _move_buckets[user_id] = hits
+    if len(hits) >= settings.move_rate_limit_per_minute:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many moves. Please slow down.",
+        )
+    hits.append(now)
+
+
+def rate_limit_moves(current_user: Annotated[User, Depends(get_current_user)]) -> None:
+    """REST dependency wrapper around :func:`check_move_rate`."""
+    check_move_rate(current_user.id)
+
+
+def check_assistant_rate(user_id: int) -> None:
+    """Allow N coach-assistant asks per minute per user (Phase 11).
+
+    A question can trigger a live engine pass and (when configured) an LLM call,
+    so it is capped more tightly than ordinary reads. Mirrors :func:`check_move_rate`.
+    """
+    now = time.monotonic()
+    window_start = now - 60.0
+    hits = [t for t in _assistant_buckets[user_id] if t > window_start]
+    _assistant_buckets[user_id] = hits
+    if len(hits) >= settings.assistant_rate_limit_per_minute:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many questions. Please slow down.",
+        )
+    hits.append(now)
+
+
+def rate_limit_assistant(current_user: Annotated[User, Depends(get_current_user)]) -> None:
+    """REST dependency wrapper around :func:`check_assistant_rate`."""
+    check_assistant_rate(current_user.id)

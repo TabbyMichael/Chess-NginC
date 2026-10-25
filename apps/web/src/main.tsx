@@ -3,7 +3,9 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 
 import App from './App';
+import { AchievementProvider } from './app/AchievementContext';
 import { AuthProvider } from './app/AuthContext';
+import { ThemeProvider } from './app/theme';
 import './styles.css';
 
 const rootElement = document.getElementById('root');
@@ -14,9 +16,13 @@ if (!rootElement) {
 createRoot(rootElement).render(
   <StrictMode>
     <BrowserRouter>
-      <AuthProvider>
-        <App />
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <AchievementProvider>
+            <App />
+          </AchievementProvider>
+        </AuthProvider>
+      </ThemeProvider>
     </BrowserRouter>
   </StrictMode>,
 );

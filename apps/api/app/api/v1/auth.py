@@ -12,12 +12,23 @@ from app.api.v1.deps import (
     get_db_session,
     rate_limit_auth,
 )
+from app.auth import google as google_auth
 from app.auth import service as auth_service
+from app.auth.email import send_password_reset_email
 from app.auth.security import MAX_PASSWORD_BYTES
 from app.core.database import settings
 from app.models.user import User
 
-from .schemas import ErrorResponse, LoginRequest, RegisterRequest, UserResponse
+from .schemas import (
+    ErrorResponse,
+    ForgotPasswordRequest,
+    GoogleLoginRequest,
+    LoginRequest,
+    MessageResponse,
+    RegisterRequest,
+    ResetPasswordRequest,
+    UserResponse,
+)
 
 router = APIRouter(tags=["auth"])
 
@@ -50,7 +61,7 @@ def _clear_auth_cookies(response: Response) -> None:
 
 
 def _to_user_response(user: User) -> UserResponse:
-    return UserResponse(id=user.id, email=user.email)
+    return UserResponse(id=user.id, email=user.email, points=user.points)
 
 
 @router.post(
@@ -93,6 +104,71 @@ def login(
         result = auth_service.login(db, payload.email, payload.password)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from None
+    _set_auth_cookies(response, result.token)
+    return _to_user_response(result.user)
+
+
+@router.post(
+    "/auth/forgot-password",
+    response_model=MessageResponse,
+    responses={429: {"model": ErrorResponse}},
+    dependencies=[Depends(rate_limit_auth), Depends(enforce_same_origin)],
+)
+def forgot_password(
+    payload: ForgotPasswordRequest,
+    db: Annotated[Session, _DbSession],
+) -> MessageResponse:
+    """Start a password reset. Always answers the same way (SEC-016)."""
+    raw_token = auth_service.begin_password_reset(db, payload.email)
+    if raw_token is not None:
+        send_password_reset_email(payload.email, raw_token)
+    return MessageResponse(
+        message="If an account exists for that email, a reset link is on its way."
+    )
+
+
+@router.post(
+    "/auth/reset-password",
+    response_model=MessageResponse,
+    responses={400: {"model": ErrorResponse}, 429: {"model": ErrorResponse}},
+    dependencies=[Depends(rate_limit_auth), Depends(enforce_same_origin)],
+)
+def reset_password(
+    payload: ResetPasswordRequest,
+    db: Annotated[Session, _DbSession],
+) -> MessageResponse:
+    """Complete a password reset with a valid single-use token."""
+    if len(payload.password.encode("utf-8")) > MAX_PASSWORD_BYTES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password is too long")
+    try:
+        auth_service.complete_password_reset(db, payload.token, payload.password)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
+    return MessageResponse(message="Your password has been reset. Sign in with your new password.")
+
+
+@router.post(
+    "/auth/google",
+    response_model=UserResponse,
+    responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+    dependencies=[Depends(rate_limit_auth), Depends(enforce_same_origin)],
+)
+def google_login(
+    payload: GoogleLoginRequest,
+    response: Response,
+    db: Annotated[Session, _DbSession],
+) -> UserResponse:
+    """Sign in with a verified Google ID token; creates the account on first use."""
+    if not google_auth.google_signin_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Google sign-in is not configured"
+        )
+    email = google_auth.verify_credential(payload.credential)
+    if email is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=auth_service.INVALID_CREDENTIALS
+        )
+    result = auth_service.login_with_google(db, email)
     _set_auth_cookies(response, result.token)
     return _to_user_response(result.user)
 

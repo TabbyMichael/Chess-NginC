@@ -1,6 +1,7 @@
 """Game repository with ownership constraints and version checking."""
 
-from sqlalchemy import select
+from sqlalchemy import or_, select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from app.models.game import Game
@@ -26,36 +27,62 @@ class GameRepository:
         stmt = select(Game).where(Game.id == game_id, Game.user_id == user_id)
         return self.db.execute(stmt).scalar_one_or_none()
 
+    def get_by_participant(self, game_id: int, user_id: int) -> Game | None:
+        """Get a game where the user holds any seat: owner or color seat.
+
+        Online games are owned by White (`user_id` mirrors `white_user_id`),
+        so Black needs the participant view. Foreign games stay invisible
+        (caller maps None to 404, never 403 — SEC-016).
+        """
+        stmt = select(Game).where(
+            Game.id == game_id,
+            or_(
+                Game.user_id == user_id,
+                Game.white_user_id == user_id,
+                Game.black_user_id == user_id,
+            ),
+        )
+        return self.db.execute(stmt).scalar_one_or_none()
+
     def update_fen(
         self, game_id: int, user_id: int, fen: str, expected_version: int
     ) -> Game | None:
         """Update game FEN with optimistic concurrency version checking.
 
-        Returns None if version mismatch (stale data).
+        Compare-and-set on ``version``: returns ``None`` when the row moved
+        under us (stale data) instead of read-modify-write racing.
         """
-        game = self.get_by_id(game_id, user_id)
-        if game is None:
-            return None
-
-        if game.version != expected_version:
-            return None  # Stale version
-
-        game.fen = fen
-        game.version += 1
+        stmt = (
+            update(Game)
+            .where(Game.id == game_id, Game.user_id == user_id, Game.version == expected_version)
+            .values(fen=fen, version=Game.version + 1)
+        )
+        result = self.db.execute(stmt)
         self.db.commit()
-        self.db.refresh(game)
-        return game
+        assert isinstance(result, CursorResult)  # DML always yields a CursorResult
+        if result.rowcount == 0:
+            return None  # stale version (or missing/foreign row)
+        return self.get_by_id(game_id, user_id)
 
     def update_status(self, game_id: int, user_id: int, status: str) -> Game | None:
-        """Update game status, enforcing ownership."""
-        game = self.get_by_id(game_id, user_id)
-        if game is None:
-            return None
+        """Atomically transition an *active* game to a terminal status.
 
-        game.status = status
+        The ``status = 'active'`` predicate makes the active→terminal flip a
+        compare-and-set: with two humans writing the same row, only the first
+        concurrent finisher gets the row back; everyone else gets ``None``
+        and must not award points (review §P1: double-award guard).
+        """
+        stmt = (
+            update(Game)
+            .where(Game.id == game_id, Game.user_id == user_id, Game.status == "active")
+            .values(status=status)
+        )
+        result = self.db.execute(stmt)
         self.db.commit()
-        self.db.refresh(game)
-        return game
+        assert isinstance(result, CursorResult)  # DML always yields a CursorResult
+        if result.rowcount == 0:
+            return None
+        return self.get_by_id(game_id, user_id)
 
     def add_move(
         self, game_id: int, user_id: int, uci: str, san: str, move_number: int

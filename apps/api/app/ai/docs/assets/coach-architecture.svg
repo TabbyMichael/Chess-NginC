@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="780" viewBox="0 0 1240 780" font-family="'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8a8f98"/>
+    </marker>
+    <marker id="arrowGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2e9e6b"/>
+    </marker>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#0b1220" flood-opacity="0.18"/>
+    </filter>
+    <style>
+      .title{font-size:30px;font-weight:700;fill:#16233b}
+      .sub{font-size:15px;fill:#5b6472}
+      .panelLbl{font-size:17px;font-weight:700}
+      .box{font-size:15px;fill:#233043}
+      .boxSub{font-size:12.5px;fill:#69727f}
+      .flow{stroke:#8a8f98;stroke-width:2.2;fill:none;marker-end:url(#arrow)}
+      .flowG{stroke:#2e9e6b;stroke-width:2.6;fill:none;marker-end:url(#arrowGreen)}
+      .pill{font-size:13px;font-weight:600;fill:#ffffff}
+    </style>
+  </defs>
+
+  <rect width="1240" height="780" fill="#f5f4ef"/>
+
+  <!-- Knight mark -->
+  <g transform="translate(30,26)" opacity="0.9">
+    <circle cx="24" cy="24" r="24" fill="#16233b"/>
+    <text x="24" y="33" text-anchor="middle" font-size="28" fill="#f5f4ef">&#9822;</text>
+  </g>
+  <text x="90" y="46" class="title">Engine-Grounded Coach Assistant</text>
+  <text x="90" y="70" class="sub">Two brains, one guardrail &#8212; reached from the &#9733; beside &#8220;Where to improve&#8221;</text>
+
+  <!-- ===== Long-context panel ===== -->
+  <rect x="40" y="120" width="360" height="250" rx="16" fill="#e9f1fb" stroke="#b9d3ef" stroke-width="1.5" filter="url(#soft)"/>
+  <text x="60" y="150" class="panelLbl" fill="#1f5fa8">LONG-CONTEXT &#183; this game</text>
+
+  <rect x="66" y="170" width="308" height="82" rx="10" fill="#ffffff" stroke="#cfe0f3"/>
+  <text x="82" y="196" class="box">Stored Review Payload</text>
+  <text x="82" y="218" class="boxSub">per-ply evals &#183; best moves &#183; explanations</text>
+  <text x="82" y="236" class="boxSub">&#8594; positions &amp; &#8220;why this move was bad&#8221;</text>
+
+  <rect x="66" y="266" width="308" height="82" rx="10" fill="#ffffff" stroke="#cfe0f3"/>
+  <text x="82" y="292" class="box">Bounded Live Stockfish</text>
+  <text x="82" y="314" class="boxSub">depth 15 &#183; MultiPV 3 &#183; 900 ms</text>
+  <text x="82" y="332" class="boxSub">&#8594; &#8220;other ways the game could have gone&#8221;</text>
+
+  <!-- ===== RAG panel ===== -->
+  <rect x="40" y="410" width="360" height="250" rx="16" fill="#e7f5ee" stroke="#bfe4cd" stroke-width="1.5" filter="url(#soft)"/>
+  <text x="60" y="440" class="panelLbl" fill="#2e9e6b">RAG &#183; across games</text>
+
+  <rect x="66" y="460" width="308" height="82" rx="10" fill="#ffffff" stroke="#cde9d8"/>
+  <text x="82" y="486" class="box">Postgres Full-Text Search</text>
+  <text x="82" y="508" class="boxSub">coach_index (tsvector + GIN)</text>
+  <text x="82" y="526" class="boxSub">&#8594; &#8220;what do I keep doing wrong&#8221;</text>
+
+  <rect x="66" y="556" width="308" height="82" rx="10" fill="#ffffff" stroke="#cde9d8"/>
+  <text x="82" y="582" class="box">Offline Opening Book</text>
+  <text x="82" y="604" class="boxSub">position &#8594; ECO + name (CC0, committed)</text>
+  <text x="82" y="622" class="boxSub">&#8594; theory names &amp; plans</text>
+
+  <!-- ===== Grounded prompt ===== -->
+  <rect x="470" y="270" width="230" height="96" rx="14" fill="#ffffff" stroke="#d7dbe2" filter="url(#soft)"/>
+  <text x="585" y="308" text-anchor="middle" class="box" font-weight="700">Assemble ONE</text>
+  <text x="585" y="330" text-anchor="middle" class="box" font-weight="700">grounded prompt</text>
+  <text x="585" y="350" text-anchor="middle" class="boxSub">citable facts only</text>
+
+  <!-- ===== Optional LLM ===== -->
+  <rect x="490" y="430" width="190" height="70" rx="14" fill="#fff4e6" stroke="#f0d6ac" filter="url(#soft)"/>
+  <text x="585" y="460" text-anchor="middle" class="box" font-weight="700">Optional LLM</text>
+  <text x="585" y="482" text-anchor="middle" class="boxSub">env-gated &#183; phrase only</text>
+
+  <!-- flows from panels to prompt -->
+  <path class="flow" d="M400,240 C440,240 440,300 470,308"/>
+  <path class="flow" d="M400,300 C440,300 440,320 470,322"/>
+  <path class="flow" d="M400,500 C440,500 440,340 470,340"/>
+  <path class="flow" d="M400,560 C440,560 440,352 470,352"/>
+  <path class="flow" d="M585,366 L585,430"/>
+
+  <!-- ===== Grounding guard ===== -->
+  <rect x="770" y="300" width="250" height="150" rx="14" fill="#fdeaea" stroke="#e79a9a" stroke-width="2.4" filter="url(#soft)"/>
+  <text x="895" y="336" text-anchor="middle" class="box" font-weight="700" fill="#b02a2a">Grounding Guard</text>
+  <text x="895" y="360" text-anchor="middle" class="boxSub">every move / eval in the reply</text>
+  <text x="895" y="378" text-anchor="middle" class="boxSub">must exist in the record</text>
+  <text x="895" y="404" text-anchor="middle" class="boxSub">&#10007; invents anything &#8594; reject</text>
+  <path class="flow" d="M680,455 C730,455 730,360 770,360"/>
+
+  <!-- deterministic composer (fallback) -->
+  <rect x="770" y="520" width="250" height="70" rx="14" fill="#eef0f4" stroke="#cfd4dd" filter="url(#soft)"/>
+  <text x="895" y="550" text-anchor="middle" class="box" font-weight="700">Deterministic Composer</text>
+  <text x="895" y="572" text-anchor="middle" class="boxSub">no key / rejected &#8594; offline answer</text>
+  <path class="flow" d="M895,450 L895,520"/>
+  <text x="912" y="492" class="boxSub" fill="#b02a2a">fallback</text>
+
+  <!-- ===== Final answer ===== -->
+  <rect x="1075" y="360" width="130" height="120" rx="14" fill="#16233b" stroke="#16233b" filter="url(#soft)"/>
+  <text x="1140" y="405" text-anchor="middle" class="pill">Answer</text>
+  <text x="1140" y="430" text-anchor="middle" class="pill" style="font-size:11.5px">+ intent + mode</text>
+  <text x="1140" y="452" text-anchor="middle" class="pill" style="font-size:11.5px">clickable refs</text>
+  <text x="1140" y="470" text-anchor="middle" class="pill" style="font-size:11.5px">board jumps</text>
+
+  <path class="flowG" d="M1020,360 C1050,360 1050,400 1075,405"/>
+  <path class="flowG" d="M1020,555 C1055,555 1055,470 1075,462"/>
+  <text x="1032" y="352" class="boxSub" fill="#2e9e6b">&#10003; grounded</text>
+
+  <!-- footer note -->
+  <text x="620" y="712" text-anchor="middle" class="boxSub">No pgvector &#183; no embeddings &#183; no new dependency &#8212; runtime &amp; CI stay offline. The engine is the only author of chess truth.</text>
+</svg>
