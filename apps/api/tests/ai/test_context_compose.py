@@ -127,6 +127,14 @@ def test_detect_intent_routes_the_core_questions() -> None:
     assert detect_intent("hello there") is Intent.GENERAL
 
 
+def test_detect_intent_routes_the_conversational_asks() -> None:
+    # Phase 11b: the new ways to lean on the coach still resolve cleanly.
+    assert detect_intent("show me the line") is Intent.LESSON
+    assert detect_intent("walk me through the main line") is Intent.LESSON
+    assert detect_intent("why is that better?") is Intent.WHY
+    assert detect_intent("what is the idea here?") is Intent.IDEA
+
+
 def test_compose_is_grounded_and_cites_references() -> None:
     facts = facts_from_payload(_payload())
     focus = facts[1]
@@ -149,6 +157,23 @@ def test_compose_alternatives_without_engine_declines_to_guess() -> None:
     facts = facts_from_payload(_payload())
     composed = compose(Intent.ALTERNATIVES, facts[1], facts, "b", lines=[])
     assert "no live engine line" in composed.answer
+
+
+def test_compose_plan_is_multi_section_and_carries_a_walkable_line() -> None:
+    facts = facts_from_payload(_payload())
+    composed = compose(Intent.PLAN, facts[1], facts, "b", game_id=42)
+    # The recommendation is spelled out in sections, and a line rides along.
+    assert "Recommendation:" in composed.answer
+    assert "The line:" in composed.answer
+    assert composed.line and composed.line[0].san == "e5"
+    assert composed.line_title
+
+
+def test_compose_lesson_walks_the_recorded_variation() -> None:
+    facts = facts_from_payload(_payload())
+    composed = compose(Intent.LESSON, facts[1], facts, "b")
+    assert "walk" in composed.answer.lower()
+    assert composed.line and composed.line[0].san == "e5"
 
 
 def test_compose_recall_fallback_when_nothing_indexed() -> None:

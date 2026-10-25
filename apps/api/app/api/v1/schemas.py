@@ -298,16 +298,25 @@ class MinePuzzleResponse(BaseModel):
     ply: int
 
 
+class CoachHistoryTurn(BaseModel):
+    """One earlier turn of the thread, so follow-ups resolve against context."""
+
+    role: str = Field(pattern=r"^(user|coach)$")
+    text: str = Field(min_length=1, max_length=1000)
+
+
 class AssistantAskRequest(BaseModel):
     """A coach question about the reviewed game (Phase 11).
 
     `focus_ply` is the ply the review cursor sits on; when it is None the
     assistant resolves the focus from the question text or the player's worst
-    own error, so a bare question still lands somewhere useful.
+    own error, so a bare question still lands somewhere useful. `history` is the
+    recent thread (oldest first) so "and after that?" carries the last move.
     """
 
     question: str = Field(min_length=1, max_length=400)
     focus_ply: int | None = Field(default=None, ge=1, le=100000)
+    history: list[CoachHistoryTurn] = Field(default_factory=list)
 
 
 class AssistantReference(BaseModel):
@@ -320,15 +329,30 @@ class AssistantReference(BaseModel):
     game_id: int | None = None
 
 
+class AssistantLineStep(BaseModel):
+    """One move of a walkable variation, with the board before and after it."""
+
+    san: str
+    uci: str
+    color: str
+    fen_before: str
+    fen_after: str
+    comment: str = ""
+    source: str = "played"  # 'played' (recorded ply) | 'engine' (live PV)
+    ply: int | None = None
+
+
 class AssistantAnswerResponse(BaseModel):
-    """The coach's grounded answer, its intent, and the moves it cites."""
+    """The coach's grounded answer, its intent, the moves it cites, and a board line."""
 
     answer: str
-    intent: str  # summary|plan|alternatives|position|explain|patterns|opening|general
-    mode: str  # 'deterministic' (always available) | 'llm' (only when it stayed grounded)
+    intent: str  # one of the Intent values in app.ai.compose
+    mode: str  # 'deterministic' (always) | 'llm' (only when it stayed grounded)
     provider: str
     references: list[AssistantReference] = Field(default_factory=list)
     position_fen: str = ""
+    line: list[AssistantLineStep] = Field(default_factory=list)
+    line_title: str = ""
 
 
 class CoachPattern(BaseModel):

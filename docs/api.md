@@ -170,17 +170,25 @@ questions, in a Postgres full-text index of their stored reviews plus the offlin
 book (RAG). An OpenAI-compatible LLM is optional and env-gated (`ASSISTANT_API_KEY`);
 with no key the deterministic engine-grounded path answers, and any model reply
 that names a move it cannot cite is discarded in favour of that path (D13).
+Since **Phase 11b** the composer emits multi-section teaching, an answer can carry
+a grounded **walkable line** the review board steps through, and follow-ups resolve
+against a bounded **conversation memory** — still with no new dependency and no
+schema migration (lines are computed on read).
 
 | Endpoint | Behaviour |
 |----------|-----------|
-| `POST /games/{id}/assistant` | Body `{question (1..400), focus_ply? (≥1)}`. Answers a coaching question about the reviewed game. Same-origin + rate-limited per user (`ASSISTANT_RATE_LIMIT_PER_MINUTE`). → `200 AssistantAnswerResponse`; `404` unknown/foreign game; `409` no completed review; `422` bad body; `429` over budget |
+| `POST /games/{id}/assistant` | Body `{question (1..400), focus_ply? (≥1), history? (≤ 8 turns of `{role: user\|coach, text})}`. Answers a coaching question about the reviewed game; `history` lets "and after that?" carry the previous focus forward. Same-origin + rate-limited per user (`ASSISTANT_RATE_LIMIT_PER_MINUTE`). → `200 AssistantAnswerResponse`; `404` unknown/foreign game; `409` no completed review; `422` bad body; `429` over budget |
 | `GET /games/{id}/assistant/patterns` | Cross-game recall: the openings where this player errs most. → `200 CoachPatternsResponse`; `404`/`409` as above |
 
-`AssistantAnswerResponse`: `answer`, `intent`
-(`summary`\|`plan`\|`alternatives`\|`position`\|`explain`\|`patterns`\|`opening`\|`general`),
+`AssistantAnswerResponse`: `answer` (possibly multi-section, `\n`-separated), `intent`
+(`summary`\|`plan`\|`lesson`\|`why`\|`idea`\|`alternatives`\|`position`\|`explain`\|`patterns`\|`opening`\|`general`),
 `mode` (`deterministic` always available, `llm` only when it stayed grounded),
 `provider`, `references[]` (`{ply, san, color, note, game_id}` — every move cited
-is a real ply the answer is grounded in), and `position_fen` (the board to show).
+is a real ply the answer is grounded in), `position_fen` (the board to show), plus
+`line[]` and `line_title` for the walkable variation (`lesson`/`plan`/`why`/`idea`/
+`alternatives`): each `AssistantLineStep` is `{san, uci, color, fen_before, fen_after,
+comment, source (played\|engine), ply}` — a move the board can step through, sourced
+from a live engine PV or (offline) the recorded plies.
 `CoachPatternsResponse`: `summary` + `items[]`
 (`{opening_family, mistakes, blunders, total_errors, avg_loss_cp}`).
 

@@ -484,5 +484,9 @@ Priorities: **P0** security/data integrity/build blockers/illegal moves · **P1*
 | COACH-F1 | `POST /games/{id}/assistant` + `GET …/patterns` (auth, same-origin, rate-limit, 404/409/422/429) | P0 | [x] | `app/api/v1/assistant.py`; HTTP tests in `tests/ai/test_assistant.py` |
 | COACH-G1 | ⭐ toggle (left of "Where to improve") + `CoachAssistant` panel, clickable move refs, patterns | P1 | [x] | `ReviewPage.tsx`, `CoachAssistant.tsx`, `api-client`/`api-types`; `*.test.tsx` |
 | COACH-I1 | CI: dedicated `pytest tests/ai`, coach migration round-trip, scripts linted | P0 | [x] | `.github/workflows/ci.yml` (fixed a latent `downgrade` TypeError in `a1c7e4f9b2d6`) |
+| COACH-11B1 | Conversational upgrade: multi-section teaching + new intents (LESSON/WHY/IDEA) | P1 | [x] | `app/ai/compose.py`; `tests/ai/test_context_compose.py` |
+| COACH-11B2 | Walkable lines from a live engine PV or the recorded plies (offline-safe) | P1 | [x] | `app/ai/longcontext/lines.py`; `tests/ai/test_lines.py` |
+| COACH-11B3 | Conversation memory: bounded history + focus carry-forward for follow-ups | P1 | [x] | `app/ai/service.py` (`_resolve_focus_ply`); `tests/ai/test_assistant.py` |
+| COACH-11B4 | API `history`/`line`/`line_title` + coach drives the main review board (lesson stepper) | P1 | [x] | `schemas.py`, `assistant.py`, `ReviewPage.tsx`, `CoachAssistant.tsx`; web `*.test.tsx` |
 
 > Statuses must be updated in this file only after the corresponding acceptance criteria are met and checks pass.

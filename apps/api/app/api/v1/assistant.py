@@ -26,6 +26,7 @@ from app.api.v1.deps import (
 from app.api.v1.schemas import (
     AssistantAnswerResponse,
     AssistantAskRequest,
+    AssistantLineStep,
     AssistantReference,
     CoachPattern,
     CoachPatternsResponse,
@@ -74,6 +75,8 @@ def _to_answer_response(answer: assistant_service.CoachAnswer) -> AssistantAnswe
         provider=answer.provider,
         references=[AssistantReference(**vars(ref)) for ref in answer.references],
         position_fen=answer.position_fen,
+        line=[AssistantLineStep(**vars(step)) for step in answer.line],
+        line_title=answer.line_title,
     )
 
 
@@ -91,8 +94,14 @@ def ask_coach(
 ) -> AssistantAnswerResponse:
     """Answer a coaching question grounded in the caller's own reviewed game."""
     review = _load_completed_review(db, game_id, current_user.id)
+    history = [(turn.role, turn.text) for turn in payload.history]
     answer = assistant_service.answer(
-        db, review, payload.question, payload.focus_ply, user_id=current_user.id
+        db,
+        review,
+        payload.question,
+        payload.focus_ply,
+        user_id=current_user.id,
+        history=history,
     )
     return _to_answer_response(answer)
 

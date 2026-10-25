@@ -1196,5 +1196,53 @@ behind a cite-only guard; embeddings/pgvector deferred as the growth path.
 reviewed game (scoping/rate-limit/404 already proven by HTTP tests); optional semantic recall
 later if keyword FTS under-serves phrasing variety.
 
+---
+
+## Session 2026-10-25 — Phase 11b: Conversational coach upgrade (memory + board walks)
+
+**Task.** Make the ⭐ coach genuinely engaging: (1) richer multi-section teaching answers
+(the move, the idea, the line, why it beats the alternative); (2) real conversation memory
+so follow-ups like "and after that?" / "show me the line" resolve against the prior focus
+and intent; (3) the coach drives the **main review board** through a grounded multi-move
+variation. Hard invariants preserved: every named move traces to a stored ply / live engine
+PV / book; no new dependency; no DB migration (lines computed on read); tests/CI offline.
+
+**Files changed.**
+- Backend new: `app/ai/longcontext/lines.py` (`LineStep`, `best_alt`, `played_line`,
+  `engine_line`, `line_from_alt`).
+- Backend edits: `longcontext/whatif.py` (`AltLine.pv_uci`), `compose.py` (LESSON/WHY/IDEA
+  intents, multi-section `_plan/_alternatives/_why/_idea/_lesson`, `Composed.line`/`line_title`,
+  `_line_and_title`), `service.py` (`history` + focus carry-forward `_resolve_focus_ply`,
+  warm conversational `_SYSTEM_PROMPT`/`_llm_prompt`, `CoachAnswer.line`), `core/database.py`
+  (`coach_history_max_turns`, `coach_line_max_steps`), `api/v1/schemas.py`
+  (`CoachHistoryTurn`, `AssistantLineStep`, `history`/`line`/`line_title`), `api/v1/assistant.py`.
+- Frontend: `lib/api-types.ts` (+`CoachHistoryTurn`/`AssistantLineStep`/`line`/`line_title`),
+  `components/CoachAssistant.tsx` (send history, multi-line render, "Show this line",
+  suggestion chips, autoscroll), `pages/ReviewPage.tsx` (lesson state drives the board +
+  stepper + autoplay + exit), `styles.css`.
+- Docs: `app/ai/docs/checklist.md` (Phase 11b block), `docs/architecture.md` (D13 extended),
+  `docs/api.md` (history/line/line_title/new intents), `PROJECT_CHECKLIST.md`.
+
+**Tests executed.**
+- New `tests/ai/test_lines.py` (played-line stitching + FEN chaining, engine-line truncation,
+  offline fallback); `tests/ai/test_context_compose.py` (+new-intent routing, plan/lesson carry
+  a walkable line); `tests/ai/test_assistant.py` (+follow-up focus carry-forward, HTTP lesson
+  returns a line, offline PLAN still yields a line). `pytest tests/ai` → **52 passed**.
+- Frontend: `CoachAssistant.test.tsx` (history sent, multi-line render, onPlayLine) and
+  `ReviewPage.test.tsx` (lesson drives the board to the step FEN + exit restores the game
+  cursor); `tsc --noEmit` clean.
+
+**Results.** The coach gives structured, walkable teaching entirely offline: with no engine
+and no key, `line_from_alt` degrades to the recorded plies so there is always a truthful
+variation to step through, and the cite-only `grounded()` guard is untouched — an LLM can
+phrase but never invent. No schema change; the line is derived at read time.
+
+**Decisions made.** Extend D13 (11b): walkable lines from the two honest sources, bounded
+conversation memory with focus carry-forward, main-board lesson overlay — all reversible.
+
+**Remaining / next task.** Live-Docker sign-off of the board walk (a real reviewed game, then
+"show me a better line" → the big board steps it; "and after that?" continues the thread).
+
+
 
 
