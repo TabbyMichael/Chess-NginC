@@ -24,6 +24,8 @@ dependencies = [
     "python-chess>=1.10",
     "google-auth>=2.35",
     "requests>=2.32",
+    # Phase 12A (D14): per-route RED metrics + /metrics scrape endpoint.
+    "prometheus-fastapi-instrumentator>=8.1",
 ]
 
 [project.optional-dependencies]

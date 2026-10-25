@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ai.rag.index import index_review_safe
+from app.core.telemetry import engine_timer, record_engine_unavailable
 from app.engine.classifier import (
     MoveContext,
     MoveQuality,
@@ -393,10 +394,15 @@ def generate_or_get(db: Session, game_id: int, user_id: int, *, force: bool = Fa
         # position — the slowest endpoint in the app got its name that way. The
         # factory picks the binary or the hosted engine from settings, so a
         # host without a binary reviews with the key it has instead of failing.
-        with open_stockfish_provider(for_review=True) as provider:
+        # MON-003: the histogram times the whole batch per provider — this is
+        # the app's slowest surface and the one TD-013/ANL-008 sizing depends on.
+        with open_stockfish_provider(for_review=True) as provider, engine_timer(provider.name):
             payload = analyse_game(provider, repo_moves)
         review.provider = provider.name
     except (EngineUnavailableError, StockfishUnavailableError) as exc:
+        # MON-004: a stored failure is invisible to HTTP (the endpoint answers
+        # 200 with status=failed), so the counter is the only sign of an outage.
+        record_engine_unavailable()
         review.status = "failed"
         review.error = str(exc)
         review.payload = {}

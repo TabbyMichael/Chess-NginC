@@ -1,5 +1,6 @@
 """Shared API dependencies: current-user resolution and auth rate limiting."""
 
+import math
 import time
 from collections import defaultdict
 from collections.abc import Generator, Mapping
@@ -10,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import service as auth_service
 from app.core.database import get_db, settings
+from app.core.telemetry import record_rate_limit_rejection
 from app.models.user import User
 
 SESSION_COOKIE = "session_token"
@@ -23,6 +25,19 @@ _move_buckets: defaultdict[int, list[float]] = defaultdict(list)
 # Coach assistant asks (Phase 11), keyed by user id — an LLM/what-if question is
 # more expensive than a page read, so it gets its own budget. Same caveat.
 _assistant_buckets: defaultdict[int, list[float]] = defaultdict(list)
+# Training attempts (Phase 12A, RL-002): every one writes a ledger row.
+_training_buckets: defaultdict[int, list[float]] = defaultdict(list)
+# Review generations (RL-001): weighted entries, not plain hits — a forced
+# re-run costs 2 because it re-holds the warm engine while a plain POST that
+# finds the cached review still costs the check it ran.
+_review_buckets: defaultdict[int, list[tuple[float, int]]] = defaultdict(list)
+
+REVIEW_WINDOW_S = 60.0 * 60.0
+
+
+def _retry_after(seconds_left: float) -> dict[str, str]:
+    """RL-004: every 429 names when the caller may return, not just "later"."""
+    return {"Retry-After": str(max(1, math.ceil(seconds_left)))}
 
 
 def rate_limit_auth(request: Request) -> None:
@@ -33,9 +48,11 @@ def rate_limit_auth(request: Request) -> None:
     hits = [t for t in _rate_buckets[key] if t > window_start]
     _rate_buckets[key] = hits
     if len(hits) >= settings.auth_rate_limit_per_minute:
+        record_rate_limit_rejection("auth")
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many attempts. Please try again later.",
+            headers=_retry_after(hits[0] + 60.0 - now),
         )
     hits.append(now)
 
@@ -45,6 +62,8 @@ def reset_rate_limits() -> None:
     _rate_buckets.clear()
     _move_buckets.clear()
     _assistant_buckets.clear()
+    _training_buckets.clear()
+    _review_buckets.clear()
 
 
 def same_origin_ok(headers: Mapping[str, str]) -> bool:
@@ -115,9 +134,11 @@ def check_move_rate(user_id: int) -> None:
     hits = [t for t in _move_buckets[user_id] if t > window_start]
     _move_buckets[user_id] = hits
     if len(hits) >= settings.move_rate_limit_per_minute:
+        record_rate_limit_rejection("moves")
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many moves. Please slow down.",
+            headers=_retry_after(hits[0] + 60.0 - now),
         )
     hits.append(now)
 
@@ -138,9 +159,11 @@ def check_assistant_rate(user_id: int) -> None:
     hits = [t for t in _assistant_buckets[user_id] if t > window_start]
     _assistant_buckets[user_id] = hits
     if len(hits) >= settings.assistant_rate_limit_per_minute:
+        record_rate_limit_rejection("assistant")
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many questions. Please slow down.",
+            headers=_retry_after(hits[0] + 60.0 - now),
         )
     hits.append(now)
 
@@ -148,3 +171,51 @@ def check_assistant_rate(user_id: int) -> None:
 def rate_limit_assistant(current_user: Annotated[User, Depends(get_current_user)]) -> None:
     """REST dependency wrapper around :func:`check_assistant_rate`."""
     check_assistant_rate(current_user.id)
+
+
+def check_training_rate(user_id: int) -> None:
+    """Allow N training attempts per minute per user (Phase 12A, RL-002).
+
+    Every attempt grades and may write a ledger row, so it gets a ceiling —
+    modest enough that real study never touches it. Mirrors :func:`check_move_rate`.
+    """
+    now = time.monotonic()
+    window_start = now - 60.0
+    hits = [t for t in _training_buckets[user_id] if t > window_start]
+    _training_buckets[user_id] = hits
+    if len(hits) >= settings.training_rate_limit_per_minute:
+        record_rate_limit_rejection("training")
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many attempts. Please slow down.",
+            headers=_retry_after(hits[0] + 60.0 - now),
+        )
+    hits.append(now)
+
+
+def rate_limit_training(current_user: Annotated[User, Depends(get_current_user)]) -> None:
+    """REST dependency wrapper around :func:`check_training_rate`."""
+    check_training_rate(current_user.id)
+
+
+def check_review_rate(user_id: int, *, force: bool) -> None:
+    """Review generation budget (Phase 12A, RL-001).
+
+    A generation holds a warm engine for seconds of real CPU (TD-013), so it is
+    the one write surface costed **per hour** instead of per minute — and a
+    forced re-run pays double. The cached GET path never comes through here.
+    """
+    weight = 2 if force else 1
+    now = time.monotonic()
+    window_start = now - REVIEW_WINDOW_S
+    entries = [(t, w) for t, w in _review_buckets[user_id] if t > window_start]
+    _review_buckets[user_id] = entries
+    if sum(w for _, w in entries) + weight > settings.review_rate_limit_per_hour:
+        record_rate_limit_rejection("review")
+        seconds_left = entries[0][0] + REVIEW_WINDOW_S - now if entries else REVIEW_WINDOW_S
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many reviews this hour. Please try again later.",
+            headers=_retry_after(seconds_left),
+        )
+    entries.append((now, weight))

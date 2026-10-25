@@ -17,6 +17,10 @@
 | `STOCKFISH_PATH` | env | absolute path; empty = PATH lookup, then distro package paths; never from clients |
 | `STOCKFISH_API_KEY` | env/secret store | hosted Stockfish (stockfishapi.com) Bearer key; **only** used as fallback when no local binary is found; empty = cloud disabled; never logged or returned |
 | `STOCKFISH_API_BASE_URL` | env | hosted API base, default `https://stockfishapi.com/v1` |
+| `REVIEW_RATE_LIMIT_PER_HOUR` | env | per-user review **generation** budget per hour (default 10; a forced re-run costs 2) — the engine-holding surface, RL-001 |
+| `TRAINING_RATE_LIMIT_PER_MINUTE` | env | per-user training-attempt budget per minute (default 60), RL-002 |
+| `CLOUD_DAILY_UNIT_BUDGET` | env | app-wide cap on hosted-engine units per UTC day (default 1800 of the free plan's 2000; `0` = unlimited, use with a paid plan), RL-003 |
+| `LOG_JSON` | env | `true` (default) emits JSON log lines with `request_id`; `false` restores the text format (MON-001) |
 
 Copy `.env.example` → `.env` for local dev only. **Never commit `.env`.**
 
@@ -69,23 +73,44 @@ Migrations run **before** the new code serves traffic, as an explicit step:
 - Compose `api.healthcheck` polls `/health`; `db` uses `pg_isready`. The `api`
   waits for `db: condition: service_healthy`.
 
-## 7. Structured logs (REL-008)
+## 7. Structured logs (REL-008, MON-001)
 
-- Single-line, timestamped records to **stdout** (`app/core/database.py`):
-  `%(asctime)s %(levelname)s [%(name)s] %(message)s` — container/log-agent friendly.
-- Level via `LOG_LEVEL` (`INFO` default). No secrets or session tokens are logged;
+- One record per line to **stdout** (`app/core/telemetry.py`). Default is
+  **JSON**: `{"ts", "level", "logger", "msg", "request_id"?, "http"?, "exc"?}`.
+  `LOG_JSON=false` restores the
+  `%(asctime)s %(levelname)s [%(name)s] %(message)s` text format.
+- Every HTTP request gets a **request id** (an inbound `X-Request-ID` is
+  honored, else one is generated), echoed on the response and carried by every
+  log line the request produces — trace a slow review with one id.
+- Health/scrape paths (`/health`, `/ready`, `/metrics`) are kept out of the
+  access log so polling does not bury real lines.
+- Level via `LOG_LEVEL` (`INFO` default). No secrets or session tokens are
+  logged — the access formatter whitelists method/path/status/duration only;
   auth errors return opaque messages (QA-019).
 
-## 8. Monitoring & error reporting (REL-009)
+## 8. Monitoring & error reporting (REL-009, D14 — wired in Phase 12A)
 
-- **Metrics to wire** (P2, pluggable): request rate/latency/error rate on the API,
-  engine-move latency, and 5xx rate — exported via stdout and scraped by the host.
-- **Alerting targets:** `/ready` failing (DB down), sustained 5xx, engine-move
-  timeouts (503s), backup-job failures.
+- **`GET /metrics`** (Prometheus text format, api container port 8000) via
+  `prometheus-fastapi-instrumentator`: per-route request rate/latency/error
+  code families (`http_requests_total`, `http_request_duration_seconds`).
+  It is deliberately **not** proxied through `web` and not part of the
+  OpenAPI contract — scrape the api port internally.
+- **Bespoke instruments** (`app/core/telemetry.py`) for what actually hurts:
+  | Metric | Meaning |
+  |--------|---------|
+  | `engine_analyse_seconds{provider}` | engine batch wall time, labeled `stockfish` / `stockfish-cloud` — sizes TD-013/ANL-008 |
+  | `engine_unavailable_total` | D7 outages (no binary and no key, or a dead engine mid-call); review failures count here even though the HTTP answer is 200-with-status-failed |
+  | `rate_limit_rejections_total{bucket}` | 429s per limiter (auth/moves/assistant/review/training) — a spike on `auth` is the cheapest brute-force alarm |
+  | `cloud_units_used_today` | hosted units drawn from the shared daily pot (RL-003) |
+  | `cloud_upstream_errors_total{status}` | upstream 4xx by code — `402`/`429` means plan trouble |
+  | `ws_connections_active` | live sockets in the single-replica hub (TD-012 visibility) |
+- **Alert targets:** `/ready` failing (DB down), sustained 5xx,
+  `engine_unavailable_total` rising, `cloud_units_used_today` near its budget,
+  `rate_limit_rejections_total{bucket="auth"}` spikes, backup-job failures.
 - **Error reporting:** FastAPI's default 500 handler logs the traceback server-side
   and returns a generic `{"detail":"Internal server error"}` to clients (no stack
-  traces leak). Hook an APM (Sentry/OTel) at `app/main.py` if desired — out of
-  scope for this repo but the seam exists.
+  traces leak). Hook an APM (Sentry/OTel) at `app/main.py` if desired — the seam
+  exists; the JSON logs + `/metrics` already carry the load (deferred by D14).
 
 ## 9. Production dependency install (REL-010)
 

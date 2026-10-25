@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 import chess
 
+from app.core.telemetry import engine_timer, record_engine_unavailable
 from app.engine.factory import open_stockfish_provider
 from app.engine.provider import AnalyseRequest
 from app.engine.stockfish import (
@@ -73,11 +74,15 @@ def stockfish_move(
         # key the factory itself raises, and that still means "the opponent is
         # down" (503), not a 500. One move never needs a held-open engine, so
         # the `with` only hands the connection pool back on the hosted route.
-        with open_stockfish_provider() as provider:
+        # engine_timer starts after the open, so the histogram measures answer
+        # time, not process startup (MON-003; a failure observes nothing).
+        with open_stockfish_provider() as provider, engine_timer(provider.name):
             result = provider.analyse(request)
     except StockfishUnavailableError as exc:
+        record_engine_unavailable()
         raise EngineUnavailableError(str(exc)) from exc
     except StockfishError as exc:
+        record_engine_unavailable()
         raise EngineUnavailableError(f"Stockfish failed to answer: {exc}") from exc
     best = result.best
     if best is None or not best.move:

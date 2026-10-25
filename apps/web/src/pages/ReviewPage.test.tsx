@@ -261,9 +261,7 @@ describe('ReviewPage content (REVIEW-003/004)', () => {
     await user.type(screen.getByLabelText('Ask the coach about this game'), 'show me the line');
     await user.click(screen.getByRole('button', { name: 'Send question' }));
 
-    await user.click(
-      await screen.findByRole('button', { name: /Show this line on the board/i }),
-    );
+    await user.click(await screen.findByRole('button', { name: /Show this line on the board/i }));
 
     // The big board now walks the variation, not the game.
     expect(await screen.findByText("The engine's line")).toBeInTheDocument();

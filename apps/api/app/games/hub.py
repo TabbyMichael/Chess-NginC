@@ -13,6 +13,8 @@ from typing import Any
 
 from fastapi import WebSocket
 
+from app.core.telemetry import set_ws_connections
+
 _lock = asyncio.Lock()
 # game_id -> user_id -> live socket (one socket per player in v1).
 _sockets: dict[int, dict[int, WebSocket]] = defaultdict(dict)
@@ -21,9 +23,16 @@ _sockets: dict[int, dict[int, WebSocket]] = defaultdict(dict)
 # opponent_left, error, pong.
 
 
+def _publish_connection_gauge() -> None:
+    """MON-007: the scrape sees the exact hub size (set, not inc/dec — a
+    reconnect or a stale-tab unregister must never drift the gauge)."""
+    set_ws_connections(sum(len(players) for players in _sockets.values()))
+
+
 async def register(game_id: int, user_id: int, websocket: WebSocket) -> None:
     async with _lock:
         _sockets[game_id][user_id] = websocket
+        _publish_connection_gauge()
 
 
 async def unregister(game_id: int, user_id: int, websocket: WebSocket) -> bool:
@@ -42,6 +51,7 @@ async def unregister(game_id: int, user_id: int, websocket: WebSocket) -> bool:
             players.pop(user_id, None)
         if not players:
             _sockets.pop(game_id, None)
+        _publish_connection_gauge()
         return left
 
 
@@ -68,3 +78,4 @@ def reset_hub() -> None:
     """Drop socket state (between tests; sockets themselves stay closed by
     the endpoint teardown)."""
     _sockets.clear()
+    set_ws_connections(0)

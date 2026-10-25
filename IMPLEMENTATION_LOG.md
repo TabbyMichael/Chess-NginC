@@ -1243,6 +1243,66 @@ conversation memory with focus carry-forward, main-board lesson overlay — all 
 **Remaining / next task.** Live-Docker sign-off of the board walk (a real reviewed game, then
 "show me a better line" → the big board steps it; "and after that?" continues the thread).
 
+## Session 2026-10-25 (b) — Phase 12A: Observability + cost-tiered rate limiting (D14/D15)
+
+**Task.** Market-readiness stage 12A of `docs/market-plan.md`: give the service eyes
+(JSON logs + Prometheus) and a shield (cost-tiered limiters + a hosted-engine budget
+guard) before any public release. Triggers: the review surface holds a warm engine ~12 s
+per call and was unlimited; the shared stockfishapi.com free tier is 2,000 units/day for
+the whole account; deployment.md §8 still said "metrics to wire".
+
+**Files changed.**
+- Backend new: `app/core/telemetry.py` — logging setup (`LOG_JSON`, default JSON lines
+  `{ts, level, logger, msg, request_id?, http?, exc?}`; no secrets/tokens ever, QA-019),
+  the six bespoke instruments (`engine_analyse_seconds{provider}`,
+  `engine_unavailable_total`, `rate_limit_rejections_total{bucket}`,
+  `cloud_units_used_today`, `cloud_upstream_errors_total{status}`, `ws_connections_active`),
+  and the request-id middleware (honors inbound `X-Request-ID`, echoes it back).
+- Backend edits: `app/main.py` (instrumentator mounts `/metrics`; middleware order),
+  `api/v1/deps.py` (RL-001..004: review limiter 10/h/user with `force` costing 2,
+  training limiter 60/min/user, `Retry-After` on every 429 from all buckets,
+  rejection counter per bucket), `engine/cloud_stockfish.py` (RL-003 + MON-006: app-wide
+  daily-unit guard tripping at `CLOUD_DAILY_UNIT_BUDGET` (1,800) with a clean 503 before
+  upstream 429/402 does; 0 disables; upstream 4xx counted by status), `engine/factory.py`
+  + `games/opponent.py` + `reviews`/`whatif` call sites (MON-003/004 observed where
+  analyses run and failures surface — the factory deliberately does not increment, to
+  avoid double-counting), the online ws hub (MON-007 gauge), `core/database.py` (new
+  settings), `pyproject.toml` + `requirements.lock` (`prometheus-fastapi-instrumentator==8.1.0`,
+  `prometheus-client==0.26.0`).
+- Docs: new `docs/market-plan.md` (Phase 12 tracker, 12A checked off); D14–D17 in
+  `docs/architecture.md`; TD-021/022/023 filed; `PROJECT_CHECKLIST.md` Phase 12 stage;
+  deployment.md §7–§8 rewritten from "to wire" to what exists + alert-target list;
+  `docs/api.md` 429/`Retry-After` + `/metrics` semantics; `.env.example` new knobs
+  (`REVIEW_RATE_LIMIT_PER_HOUR`, `TRAINING_RATE_LIMIT_PER_MINUTE`,
+  `CLOUD_DAILY_UNIT_BUDGET`, `LOG_JSON`).
+
+**Tests executed.**
+- New `tests/test_phase12_telemetry.py`: `/metrics` serves Prometheus text and stays out
+  of the OpenAPI contract; `X-Request-ID` honored/echoed; JSON log line shape; review
+  budget (11th in the hour → 429 + `Retry-After`, a `force` re-run costs 2); training
+  limiter; rejection counter moves. Cloud-budget tests appended to
+  `test_cloud_stockfish.py`. Full suite `pytest` → **460 passed** (up from 428 pre-12A).
+- Gates in CI order: `ruff check` + `ruff format` clean (127 files), `mypy app` success
+  (88 files), `alembic upgrade head` + `alembic check` clean on a fresh throwaway DB
+  ("No new upgrade operations"), frontend eslint/`tsc` clean, vitest **247 passed**
+  (21 files), `vite build` ok, prettier clean (3 Phase-11b files reformatted).
+
+**Results.** `/ready` + `/metrics` + JSON request-traceable logs give the ops floor D14
+promised; every expensive surface now has a budget, and the cloud pot can no longer be
+burned dry by one route — the guard trips locally before upstream does. No schema change;
+limiters stay in-process (swap to Redis is RL-005, triggered by TD-012).
+
+**Decisions made.** D14 (observability via Prometheus text + JSON logs, no hosted APM at
+launch) and D15 (cost-tiered limiters: hourly on engine-holding surfaces, per-minute
+elsewhere, `force` costs double, global cloud budget) implemented as planned; engine
+failure counted where it surfaces, never at the factory seam.
+
+**Remaining / next task.** Stage 12B (identity + minimal RBAC: SEC-021..028) and 12C-C1
+capture tables (FP-001..003) per `docs/market-plan.md`; RL-005 Redis swap only when
+TD-012 trips; TD-021 (proxy/XFF trust) must land before real-IP limiting behind a
+reverse proxy.
+
+
 
 
 
