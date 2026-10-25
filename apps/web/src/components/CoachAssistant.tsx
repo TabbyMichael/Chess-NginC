@@ -11,13 +11,13 @@
  * talks to the API through the shared client. A 429/error is surfaced inline so
  * the surrounding review never disappears because the coach had nothing to say.
  */
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { Lightbulb, Loader2, Send, X } from 'lucide-react';
+import { Lightbulb, Loader2, PlayCircle, Send, X } from 'lucide-react';
 
 import { Button } from './ui/Button';
 import { ApiError, api } from '../lib/api-client';
-import type { AssistantAnswerResponse, CoachPattern } from '../lib/api-types';
+import type { AssistantAnswerResponse, AssistantLineStep, CoachPattern } from '../lib/api-types';
 
 type Props = {
   gameId: number;
@@ -25,6 +25,8 @@ type Props = {
   focusPly: number | null;
   /** Walk the review tour to a ply when a cited move is clicked. */
   onSelectPly: (ply: number) => void;
+  /** Drive the main board through a walkable variation the coach surfaced. */
+  onPlayLine: (line: AssistantLineStep[], title: string) => void;
   onClose: () => void;
 };
 
@@ -35,10 +37,24 @@ type Turn = {
   answer?: AssistantAnswerResponse;
 };
 
+/** How many recent turns ride along so follow-ups resolve against context. */
+const HISTORY_MAX = 8;
+
+/** Quick prompts that turn a vague question into a coachable one. */
+const SUGGESTIONS = [
+  'What was my worst move and why?',
+  'Show me the main line here',
+  'Why is that better?',
+  'What is the idea behind this move?',
+];
+
 /** Short, human labels for the coach's detected intent. */
 const INTENT_LABEL: Record<string, string> = {
   summary: 'Overview',
   plan: 'Best way to proceed',
+  lesson: 'Let\'s walk it',
+  why: 'Why it is better',
+  idea: 'The idea',
   alternatives: 'Other ways it could have gone',
   position: 'The position',
   explain: 'Why that move',
@@ -47,7 +63,13 @@ const INTENT_LABEL: Record<string, string> = {
   general: 'Coach',
 };
 
-export default function CoachAssistant({ gameId, focusPly, onSelectPly, onClose }: Props) {
+export default function CoachAssistant({
+  gameId,
+  focusPly,
+  onSelectPly,
+  onPlayLine,
+  onClose,
+}: Props) {
   const [question, setQuestion] = useState('');
   const [turns, setTurns] = useState<Turn[]>([]);
   const [patterns, setPatterns] = useState<CoachPattern[] | null>(null);
@@ -55,21 +77,36 @@ export default function CoachAssistant({ gameId, focusPly, onSelectPly, onClose 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const nextId = useRef(1);
+  const threadRef = useRef<HTMLDivElement | null>(null);
 
   const push = useCallback((turn: Omit<Turn, 'id'>) => {
     setTurns((prev) => [...prev, { ...turn, id: nextId.current++ }]);
   }, []);
 
+  // Keep the newest turn in view as the conversation grows.
+  useEffect(() => {
+    const el = threadRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [turns, patterns, error]);
+
   async function ask(event: FormEvent) {
     event.preventDefault();
     const text = question.trim();
     if (!text || busy) return;
+    // Send the prior thread (not the question being asked now) as history.
+    const history = turns
+      .map((t) => ({ role: t.role === 'you' ? 'user' : 'coach', text: t.text }))
+      .slice(-HISTORY_MAX);
     setQuestion('');
     setError(null);
     setBusy(true);
     push({ role: 'you', text });
     try {
-      const answer = await api.askCoach(gameId, { question: text, focus_ply: focusPly ?? null });
+      const answer = await api.askCoach(gameId, {
+        question: text,
+        focus_ply: focusPly ?? null,
+        history,
+      });
       push({ role: 'coach', text: answer.answer, answer });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'The coach could not answer just now.');
@@ -102,7 +139,7 @@ export default function CoachAssistant({ gameId, focusPly, onSelectPly, onClose 
         </Button>
       </header>
 
-      <div className="coach-thread">
+      <div className="coach-thread" ref={threadRef}>
         {turns.length === 0 && !patterns && (
           <p className="u-muted">
             Ask about this game — the positions, the best way to proceed, or how it could have gone
@@ -120,7 +157,26 @@ export default function CoachAssistant({ gameId, focusPly, onSelectPly, onClose 
                 {INTENT_LABEL[turn.answer?.intent ?? ''] ?? 'Coach'}
                 {turn.answer?.mode === 'llm' ? ' · phrased by a model, cited from your game' : ''}
               </p>
-              <p className="coach-text">{turn.text}</p>
+              <div className="coach-text">
+                {turn.text
+                  .split('\n')
+                  .filter((line) => line.trim() !== '')
+                  .map((line, i) => (
+                    <p key={`${turn.id}-l${i}`}>{line}</p>
+                  ))}
+              </div>
+              {turn.answer && turn.answer.line && turn.answer.line.length > 0 && (
+                <button
+                  type="button"
+                  className="coach-line-link"
+                  onClick={() =>
+                    onPlayLine(turn.answer?.line ?? [], turn.answer?.line_title ?? 'The line')
+                  }
+                >
+                  <PlayCircle size={14} aria-hidden="true" />
+                  Show this line on the board
+                </button>
+              )}
               {turn.answer?.position_fen && (
                 <button
                   type="button"
@@ -175,6 +231,22 @@ export default function CoachAssistant({ gameId, focusPly, onSelectPly, onClose 
       )}
 
       {error && <p role="alert">{error}</p>}
+
+      {turns.length === 0 && (
+        <div className="coach-chips" aria-label="suggested questions">
+          {SUGGESTIONS.map((tip) => (
+            <button
+              key={tip}
+              type="button"
+              className="coach-chip"
+              onClick={() => setQuestion(tip)}
+              disabled={busy}
+            >
+              {tip}
+            </button>
+          ))}
+        </div>
+      )}
 
       <form className="coach-ask" onSubmit={ask}>
         <label className="sr-only" htmlFor="coach-question">

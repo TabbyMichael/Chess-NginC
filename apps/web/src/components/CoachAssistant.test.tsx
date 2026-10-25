@@ -10,7 +10,11 @@ import { describe, expect, it, vi } from 'vitest';
 
 import CoachAssistant from './CoachAssistant';
 import { ApiError, api } from '../lib/api-client';
-import type { AssistantAnswerResponse, CoachPatternsResponse } from '../lib/api-types';
+import type {
+  AssistantAnswerResponse,
+  AssistantLineStep,
+  CoachPatternsResponse,
+} from '../lib/api-types';
 
 const ANSWER: AssistantAnswerResponse = {
   answer: 'Your c5 blunder hung a pawn; the engine preferred e5.',
@@ -24,8 +28,31 @@ const ANSWER: AssistantAnswerResponse = {
   position_fen: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1',
 };
 
+const LINE_ANSWER: AssistantAnswerResponse = {
+  answer: 'Recommendation: play e5 instead of c5.\nThe idea: strike the centre.\nThe line: e5 Nf3 d6.',
+  intent: 'plan',
+  mode: 'deterministic',
+  provider: 'stockfish+book',
+  references: [{ ply: 2, san: 'c5', color: 'b', note: '' }],
+  position_fen: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1',
+  line_title: 'How the game went',
+  line: [
+    {
+      san: 'e5',
+      uci: 'e7e5',
+      color: 'b',
+      fen_before: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1',
+      fen_after: 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2',
+      comment: 'best',
+      source: 'played',
+      ply: 2,
+    },
+  ] as AssistantLineStep[],
+};
+
 function renderPanel(overrides: Partial<ComponentProps<typeof CoachAssistant>> = {}) {
   const onSelectPly = vi.fn();
+  const onPlayLine = vi.fn();
   const onClose = vi.fn();
   const user = userEvent.setup();
   render(
@@ -33,11 +60,12 @@ function renderPanel(overrides: Partial<ComponentProps<typeof CoachAssistant>> =
       gameId={7}
       focusPly={2}
       onSelectPly={onSelectPly}
+      onPlayLine={onPlayLine}
       onClose={onClose}
       {...overrides}
     />,
   );
-  return { user, onSelectPly, onClose };
+  return { user, onSelectPly, onPlayLine, onClose };
 }
 
 describe('CoachAssistant asking', () => {
@@ -49,7 +77,11 @@ describe('CoachAssistant asking', () => {
     await user.click(screen.getByRole('button', { name: 'Send question' }));
 
     expect(await screen.findByText(ANSWER.answer)).toBeInTheDocument();
-    expect(ask).toHaveBeenCalledWith(7, { question: 'what went wrong?', focus_ply: 2 });
+    expect(ask).toHaveBeenCalledWith(7, {
+      question: 'what went wrong?',
+      focus_ply: 2,
+      history: [],
+    });
 
     // Your question is echoed in the thread.
     expect(screen.getByText('what went wrong?')).toBeInTheDocument();
@@ -107,5 +139,54 @@ describe('CoachAssistant closing', () => {
     const { user, onClose } = renderPanel();
     await user.click(screen.getByRole('button', { name: 'Close coach' }));
     expect(onClose).toHaveBeenCalled();
+  });
+});
+
+describe('CoachAssistant conversation memory and line walks', () => {
+  it('sends the prior thread as history so follow-ups resolve', async () => {
+    const ask = vi
+      .spyOn(api, 'askCoach')
+      .mockResolvedValueOnce(ANSWER)
+      .mockResolvedValueOnce({ ...ANSWER, answer: 'After that, develop with a gain.' });
+    const { user } = renderPanel();
+
+    await user.type(screen.getByLabelText('Ask the coach about this game'), 'what went wrong?');
+    await user.click(screen.getByRole('button', { name: 'Send question' }));
+    await screen.findByText(ANSWER.answer);
+
+    await user.type(screen.getByLabelText('Ask the coach about this game'), 'and after that?');
+    await user.click(screen.getByRole('button', { name: 'Send question' }));
+
+    expect(ask).toHaveBeenLastCalledWith(7, {
+      question: 'and after that?',
+      focus_ply: 2,
+      history: [
+        { role: 'user', text: 'what went wrong?' },
+        { role: 'coach', text: ANSWER.answer },
+      ],
+    });
+  });
+
+  it('renders a multi-section answer one line at a time', async () => {
+    vi.spyOn(api, 'askCoach').mockResolvedValue(LINE_ANSWER);
+    const { user } = renderPanel();
+
+    await user.type(screen.getByLabelText('Ask the coach about this game'), 'best move?');
+    await user.click(screen.getByRole('button', { name: 'Send question' }));
+
+    expect(await screen.findByText('Recommendation: play e5 instead of c5.')).toBeInTheDocument();
+    expect(screen.getByText('The idea: strike the centre.')).toBeInTheDocument();
+  });
+
+  it('shows a walkable line and drives the board when asked', async () => {
+    vi.spyOn(api, 'askCoach').mockResolvedValue(LINE_ANSWER);
+    const { user, onPlayLine } = renderPanel();
+
+    await user.type(screen.getByLabelText('Ask the coach about this game'), 'show me the line');
+    await user.click(screen.getByRole('button', { name: 'Send question' }));
+
+    const play = await screen.findByRole('button', { name: /Show this line on the board/i });
+    await user.click(play);
+    expect(onPlayLine).toHaveBeenCalledWith(LINE_ANSWER.line, 'How the game went');
   });
 });

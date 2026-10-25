@@ -20,9 +20,12 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  Pause,
+  Play,
   RefreshCw,
   Sparkles,
   Star,
+  X,
 } from 'lucide-react';
 
 import Chessboard from '../components/Chessboard';
@@ -34,7 +37,7 @@ import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { useAchievementRide } from '../app/useAchievementRide';
 import { ApiError, api } from '../lib/api-client';
-import type { ReviewMoveResponse, ReviewResponse } from '../lib/api-types';
+import type { AssistantLineStep, ReviewMoveResponse, ReviewResponse } from '../lib/api-types';
 import { narratePly } from '../lib/narration';
 import {
   QUALITY_ORDER,
@@ -89,6 +92,47 @@ export default function ReviewPage() {
   const [selectedPly, setSelectedPly] = useState<number | null>(null);
   // The coach assistant is a opt-in panel beside the review (Phase 11).
   const [coachOpen, setCoachOpen] = useState(false);
+  // A walkable variation the coach surfaced, stepped through on the main board.
+  const [lesson, setLesson] = useState<{
+    steps: AssistantLineStep[];
+    index: number;
+    title: string;
+  } | null>(null);
+  const [lessonPlaying, setLessonPlaying] = useState(false);
+
+  const exitLesson = useCallback(() => {
+    setLesson(null);
+    setLessonPlaying(false);
+  }, []);
+
+  const playLine = useCallback((steps: AssistantLineStep[], title: string) => {
+    if (steps.length === 0) return;
+    setLessonPlaying(false);
+    setLesson({ steps, index: 0, title });
+  }, []);
+
+  const lessonGo = useCallback((where: CursorMove) => {
+    setLesson((prev) => {
+      if (!prev) return prev;
+      const last = prev.steps.length - 1;
+      const at = prev.index;
+      const next =
+        where === 'first' ? 0 : where === 'last' ? last : where === 'prev' ? at - 1 : at + 1;
+      return { ...prev, index: Math.max(0, Math.min(last, next)) };
+    });
+  }, []);
+
+  // Autoplay walks the lesson forward and stops on the final step.
+  useEffect(() => {
+    if (!lesson || !lessonPlaying) return;
+    const last = lesson.steps.length - 1;
+    if (lesson.index >= last) return;
+    const timer = setTimeout(() => {
+      lessonGo('next');
+      if (lesson.index + 1 >= last) setLessonPlaying(false);
+    }, 900);
+    return () => clearTimeout(timer);
+  }, [lesson, lessonPlaying, lessonGo]);
 
   useEffect(() => {
     if (badId) return;
@@ -145,7 +189,7 @@ export default function ReviewPage() {
   );
 
   // Arrow keys walk the tour for keyboard users; the strip does the same job for
-  // everyone else, and both drive the single `selectedPly` cursor.
+  // everyone else. While the coach is walking a variation, they drive that instead.
   useEffect(() => {
     function onKeydown(event: KeyboardEvent) {
       if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
@@ -154,11 +198,12 @@ export default function ReviewPage() {
       const target = event.target as HTMLElement | null;
       if (target && KEY_CONSUMERS.test(target.tagName)) return;
       event.preventDefault();
-      goTo(where);
+      if (lesson) lessonGo(where);
+      else goTo(where);
     }
     window.addEventListener('keydown', onKeydown);
     return () => window.removeEventListener('keydown', onKeydown);
-  }, [goTo]);
+  }, [goTo, lesson, lessonGo]);
 
   // A finished analysis is a milestone of its own (reviews_completed).
   useAchievementRide(review);
@@ -280,78 +325,176 @@ export default function ReviewPage() {
       <div className="review-grid">
         <section className="review-board-col" aria-label="review board">
           <Card>
-            {board.fen ? (
-              <Chessboard
-                fen={board.fen}
-                status="active"
-                selected={null}
-                onSelect={() => {}}
-                onMove={() => {}}
-                disabled
-                lastMove={board.last}
-              />
+            {lesson ? (
+              <>
+                {lesson.steps[lesson.index] ? (
+                  <Chessboard
+                    fen={lesson.steps[lesson.index].fen_after}
+                    status="active"
+                    selected={null}
+                    onSelect={() => {}}
+                    onMove={() => {}}
+                    disabled
+                    lastMove={uciSquares(lesson.steps[lesson.index].uci)}
+                  />
+                ) : null}
+                <div className="lesson-bar">
+                  <div className="lesson-head">
+                    <strong>{lesson.title}</strong>
+                    <span className="u-muted">
+                      Step {lesson.index + 1} of {lesson.steps.length}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      className="nav-btn"
+                      onClick={() => setLessonPlaying((v) => !v)}
+                      aria-label={lessonPlaying ? 'Pause line' : 'Play line'}
+                      title={lessonPlaying ? 'Pause' : 'Play'}
+                    >
+                      {lessonPlaying ? (
+                        <Pause size={16} aria-hidden="true" />
+                      ) : (
+                        <Play size={16} aria-hidden="true" />
+                      )}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      className="nav-btn"
+                      onClick={exitLesson}
+                      aria-label="Exit lesson"
+                      title="Exit lesson"
+                    >
+                      <X size={16} aria-hidden="true" />
+                    </Button>
+                  </div>
+                  <div className="review-nav" role="group" aria-label="lesson navigation">
+                    <Button
+                      variant="ghost"
+                      className="nav-btn"
+                      onClick={() => lessonGo('first')}
+                      disabled={lesson.index <= 0}
+                      aria-label="First step"
+                      title="First step"
+                    >
+                      <ChevronsLeft size={16} aria-hidden="true" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      className="nav-btn"
+                      onClick={() => lessonGo('prev')}
+                      disabled={lesson.index <= 0}
+                      aria-label="Previous step"
+                      title="Previous step (Left arrow)"
+                    >
+                      <ChevronLeft size={16} aria-hidden="true" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      className="nav-btn"
+                      onClick={() => lessonGo('next')}
+                      disabled={lesson.index >= lesson.steps.length - 1}
+                      aria-label="Next step"
+                      title="Next step (Right arrow)"
+                    >
+                      <ChevronRight size={16} aria-hidden="true" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      className="nav-btn"
+                      onClick={() => lessonGo('last')}
+                      disabled={lesson.index >= lesson.steps.length - 1}
+                      aria-label="Last step"
+                      title="Last step"
+                    >
+                      <ChevronsRight size={16} aria-hidden="true" />
+                    </Button>
+                  </div>
+                  {lesson.steps[lesson.index] && (
+                    <p className="lesson-caption">
+                      <span className={`review-san side-${lesson.steps[lesson.index].color}`}>
+                        {lesson.steps[lesson.index].san}
+                      </span>
+                      <span className="u-muted">{lesson.steps[lesson.index].comment}</span>
+                    </p>
+                  )}
+                </div>
+              </>
             ) : (
-              <p className="u-muted">No moves to show.</p>
-            )}
-            {review.moves.length > 0 && (
-              <div className="review-nav" role="group" aria-label="move navigation">
-                <Button
-                  variant="ghost"
-                  className="nav-btn"
-                  onClick={() => goTo('first')}
-                  disabled={isFirst}
-                  aria-label="First move"
-                  title="First move"
-                >
-                  <ChevronsLeft size={16} aria-hidden="true" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  className="nav-btn"
-                  onClick={() => goTo('prev')}
-                  disabled={isFirst}
-                  aria-label="Previous move"
-                  title="Previous move (Left arrow)"
-                >
-                  <ChevronLeft size={16} aria-hidden="true" />
-                </Button>
-                <span className="review-nav-count">
-                  Move {selected ? selected.ply : 0} of {review.moves.length}
-                </span>
-                <Button
-                  variant="ghost"
-                  className="nav-btn"
-                  onClick={() => goTo('next')}
-                  disabled={isLast}
-                  aria-label="Next move"
-                  title="Next move (Right arrow)"
-                >
-                  <ChevronRight size={16} aria-hidden="true" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  className="nav-btn"
-                  onClick={() => goTo('last')}
-                  disabled={isLast}
-                  aria-label="Last move"
-                  title="Last move"
-                >
-                  <ChevronsRight size={16} aria-hidden="true" />
-                </Button>
-              </div>
-            )}
-            {selected && (
-              <p className="review-current-move">
-                <QualityBadge quality={selected.quality} />
-                <strong>
-                  {selected.color === 'w' ? 'White' : 'Black'} played {selected.san}
-                </strong>
-                <span className="u-muted">
-                  {formatEval(selected.eval_cp, selected.eval_mate)} · {selected.centipawn_loss} cp
-                  off best
-                </span>
-                <span className="review-explanation">{selected.explanation}</span>
-              </p>
+              <>
+                {board.fen ? (
+                  <Chessboard
+                    fen={board.fen}
+                    status="active"
+                    selected={null}
+                    onSelect={() => {}}
+                    onMove={() => {}}
+                    disabled
+                    lastMove={board.last}
+                  />
+                ) : (
+                  <p className="u-muted">No moves to show.</p>
+                )}
+                {review.moves.length > 0 && (
+                  <div className="review-nav" role="group" aria-label="move navigation">
+                    <Button
+                      variant="ghost"
+                      className="nav-btn"
+                      onClick={() => goTo('first')}
+                      disabled={isFirst}
+                      aria-label="First move"
+                      title="First move"
+                    >
+                      <ChevronsLeft size={16} aria-hidden="true" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      className="nav-btn"
+                      onClick={() => goTo('prev')}
+                      disabled={isFirst}
+                      aria-label="Previous move"
+                      title="Previous move (Left arrow)"
+                    >
+                      <ChevronLeft size={16} aria-hidden="true" />
+                    </Button>
+                    <span className="review-nav-count">
+                      Move {selected ? selected.ply : 0} of {review.moves.length}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      className="nav-btn"
+                      onClick={() => goTo('next')}
+                      disabled={isLast}
+                      aria-label="Next move"
+                      title="Next move (Right arrow)"
+                    >
+                      <ChevronRight size={16} aria-hidden="true" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      className="nav-btn"
+                      onClick={() => goTo('last')}
+                      disabled={isLast}
+                      aria-label="Last move"
+                      title="Last move"
+                    >
+                      <ChevronsRight size={16} aria-hidden="true" />
+                    </Button>
+                  </div>
+                )}
+                {selected && (
+                  <p className="review-current-move">
+                    <QualityBadge quality={selected.quality} />
+                    <strong>
+                      {selected.color === 'w' ? 'White' : 'Black'} played {selected.san}
+                    </strong>
+                    <span className="u-muted">
+                      {formatEval(selected.eval_cp, selected.eval_mate)} · {selected.centipawn_loss}{' '}
+                      cp off best
+                    </span>
+                    <span className="review-explanation">{selected.explanation}</span>
+                  </p>
+                )}
+              </>
             )}
           </Card>
 
@@ -478,7 +621,11 @@ export default function ReviewPage() {
               <CoachAssistant
                 gameId={gameId}
                 focusPly={selected ? selected.ply : null}
-                onSelectPly={setSelectedPly}
+                onSelectPly={(ply) => {
+                  exitLesson();
+                  setSelectedPly(ply);
+                }}
+                onPlayLine={playLine}
                 onClose={() => setCoachOpen(false)}
               />
             </Card>

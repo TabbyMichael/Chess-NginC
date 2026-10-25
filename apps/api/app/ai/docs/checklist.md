@@ -122,6 +122,26 @@ pie showData
 
 ---
 
+## Phase 11b — Conversational upgrade (engagement + memory + board walks)
+
+> Follow-on to Phase 11: richer multi-section teaching, real conversation memory,
+> and the coach driving the review board through a grounded variation — all still
+> fully offline-derivable (no new dependency, no migration).
+
+| ID | Item | Pri | Status | Evidence / Location |
+|----|------|-----|--------|---------------------|
+| COACH-11B1 | `pv_uci` carried on `AltLine` so a suggested line's UCI survives for FEN math | P1 | [x] | `longcontext/whatif.py` |
+| COACH-11B2 | Walkable lines: `LineStep` + `played_line` (recorded plies) + `engine_line` (live PV), each truncated at the first illegality | P1 | [x] | `longcontext/lines.py` + `tests/ai/test_lines.py` |
+| COACH-11B3 | New intents LESSON / WHY / IDEA + multi-section prose (`Recommendation:` / `The idea:` / `The line:` / `Why it is better:`) | P1 | [x] | `compose.py` |
+| COACH-11B4 | `Composed.line` / `line_title` populated for the show-line intents (engine line, else recorded continuation) | P1 | [x] | `compose.py::compose` |
+| COACH-11B5 | Conversation memory: recent thread → focus carry-forward for anaphoric follow-ups | P1 | [x] | `service.py::_resolve_focus_ply` + follow-up test |
+| COACH-11B6 | Warmer conversational LLM prompt (bounded history + the line); cite-only guard untouched, no-key ⇒ richer deterministic answer | P1 | [x] | `service.py::_SYSTEM_PROMPT/_llm_prompt` |
+| COACH-11B7 | API: `history` on the ask request; `line` / `line_title` on the answer response | P1 | [x] | `schemas.py`, `assistant.py` |
+| COACH-11B8 | Coach drives the main review board (lesson stepper: first/prev/next/last + autoplay + exit); suggestion chips; multi-line bubbles | P1 | [x] | `ReviewPage.tsx`, `CoachAssistant.tsx`, `styles.css` |
+| COACH-11B9 | Gates stay offline: no binary/key/network; engine-sourced lines degrade to recorded plies when the engine is absent | **P0** | [x] | all `tests/ai` + web tests pass offline |
+
+---
+
 ## Acceptance gates to run before any `[x]`
 
 ```bash

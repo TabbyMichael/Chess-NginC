@@ -118,6 +118,32 @@ def test_service_offline_path_uses_no_engine_no_network(
     )
     assert answer.mode == "deterministic"
     assert answer.answer
+    # Even offline the coach has a truthful line to walk (the recorded plies).
+    assert answer.line
+    assert answer.line_title
+
+
+def test_follow_up_carries_focus_from_history(
+    authed_client: tuple[TestClient, dict], db: Session
+) -> None:
+    client, gid, uid = _setup(authed_client, db)
+    review = assistant_service.ensure_completed_review(db, gid, uid)
+    # No explicit cursor and an anaphoric "after that" — resolve against the last
+    # move the coach discussed (c5, ply 2), not the worst-error default.
+    answer = assistant_service.build_answer(
+        db,
+        review,
+        "show me the line after that",
+        None,
+        user_id=uid,
+        history=[("coach", "Let's look at your c5 here.")],
+    )
+    assert answer.intent == "lesson"
+    # The focus carried forward to c5 (ply 2): the walk is anchored there, and a
+    # line came back whether or not a live engine is present (ply=None on engine
+    # steps, ply=2 on recorded ones, so we assert on the prose, not the ply).
+    assert "c5" in answer.answer and "move 2" in answer.answer
+    assert answer.line
 
 
 def test_llm_invention_is_discarded_for_the_fallback(
@@ -210,6 +236,24 @@ def test_ask_returns_grounded_summary(authed_client: tuple[TestClient, dict], db
     assert body["intent"] == "summary"
     assert body["references"]
     assert body["position_fen"]  # a real board to show
+
+
+def test_ask_returns_a_walkable_line_for_a_lesson(
+    authed_client: tuple[TestClient, dict], db: Session
+) -> None:
+    client, gid, _ = _setup(authed_client, db)
+    resp = client.post(
+        f"/api/v1/games/{gid}/assistant",
+        json={"question": "show me the line", "focus_ply": 2, "history": []},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["intent"] == "lesson"
+    assert body["line_title"]
+    assert body["line"]
+    # Every step carries a board before and after so the front end can walk it.
+    assert body["line"][0]["fen_before"] and body["line"][0]["fen_after"]
+    assert body["line"][0]["source"] in ("played", "engine")
 
 
 def test_ask_rejects_empty_question_and_bad_focus(

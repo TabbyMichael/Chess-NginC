@@ -37,6 +37,7 @@ class AltLine:
     score_cp_hero: int  # centipawns from the hero's perspective
     mate_in_hero: int | None  # signed moves to mate, + favoring the hero
     pv_san: tuple[str, ...]  # the continuation in SAN, hero move first
+    pv_uci: tuple[str, ...] = ()  # the same continuation in raw UCI, for board walks
 
 
 def _for_color(hero: str) -> Color:
@@ -111,6 +112,7 @@ def alternative_lines(fen: str, hero: str, *, limit: int = WHATIF_MULTIPV) -> li
                 score_cp_hero=score,
                 mate_in_hero=mate,
                 pv_san=sans,
+                pv_uci=tuple(line.pv),
             )
         )
     return lines

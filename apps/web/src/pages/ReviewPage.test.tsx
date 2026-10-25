@@ -224,7 +224,58 @@ describe('ReviewPage content (REVIEW-003/004)', () => {
       await screen.findByText('Your e5 slipped just under the best line.'),
     ).toBeInTheDocument();
     // The board cursor (ply 1 at the tour start) is what the coach is told to focus on.
-    expect(ask).toHaveBeenCalledWith(7, { question: 'why?', focus_ply: 1 });
+    expect(ask).toHaveBeenCalledWith(7, { question: 'why?', focus_ply: 1, history: [] });
+  });
+
+  it('walks a coach-suggested line on the main board, then returns to the game', async () => {
+    vi.spyOn(api, 'getGameReview').mockResolvedValue(review());
+    vi.spyOn(api, 'askCoach').mockResolvedValue({
+      answer: 'The line: e5.',
+      intent: 'lesson',
+      mode: 'deterministic',
+      provider: 'stockfish+book',
+      references: [{ ply: 2, san: 'e5', color: 'b', note: '' }],
+      position_fen: AFTER_E4,
+      line_title: "The engine's line",
+      line: [
+        {
+          san: 'e5',
+          uci: 'e7e5',
+          color: 'b',
+          fen_before: AFTER_E4,
+          fen_after: 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2',
+          comment: 'engine: +0.20',
+          source: 'engine',
+          ply: null,
+        },
+      ],
+    });
+    const { user } = renderReview();
+
+    const pawnOnE5 = () => screen.getByRole('gridcell', { name: /^e5,/ });
+    // Tour opens on ply 1 (played from the start): e5 is empty.
+    await screen.findByText('Move 1 of 2');
+    expect(pawnOnE5()).toHaveAccessibleName('e5, empty');
+
+    await user.click(await screen.findByRole('button', { name: 'Coach assistant' }));
+    await user.type(screen.getByLabelText('Ask the coach about this game'), 'show me the line');
+    await user.click(screen.getByRole('button', { name: 'Send question' }));
+
+    await user.click(
+      await screen.findByRole('button', { name: /Show this line on the board/i }),
+    );
+
+    // The big board now walks the variation, not the game.
+    expect(await screen.findByText("The engine's line")).toBeInTheDocument();
+    expect(screen.getByText('Step 1 of 1')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'lesson navigation' })).toBeInTheDocument();
+    expect(pawnOnE5()).toHaveAccessibleName('e5, black p');
+
+    // Exiting snaps back to the recorded tour.
+    await user.click(screen.getByRole('button', { name: 'Exit lesson' }));
+    expect(await screen.findByText('Move 1 of 2')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'move navigation' })).toBeInTheDocument();
+    expect(pawnOnE5()).toHaveAccessibleName('e5, empty');
   });
 
   it('re-analyses on demand', async () => {

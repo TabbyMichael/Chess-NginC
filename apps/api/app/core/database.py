@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     assistant_rate_limit_per_minute: int = 20
     coach_recall_top_k: int = 6
     coach_patterns_min: int = 2
+    # Conversational coach upgrade (Phase 11b): how much recent thread is sent
+    # back for follow-up resolution/LLM context, and how long a walkable board
+    # line may get before it is truncated. Both only bound size — never content.
+    coach_history_max_turns: int = 8
+    coach_line_max_steps: int = 8
     log_level: str = "INFO"
 
     model_config = SettingsConfigDict(env_file=".env")

@@ -266,10 +266,17 @@ export interface MinePuzzleResponse {
 
 // --- Coach assistant (Phase 11) -------------------------------------------
 
+/** One earlier turn of the thread, so follow-ups resolve against context. */
+export interface CoachHistoryTurn {
+  role: 'user' | 'coach' | string;
+  text: string;
+}
+
 /** A coaching question about the reviewed game; `focus_ply` is the board cursor. */
 export interface AssistantAskRequest {
   question: string;
   focus_ply?: number | null;
+  history?: CoachHistoryTurn[];
 }
 
 /** One move an answer is grounded in — always a real, cited ply. */
@@ -281,13 +288,35 @@ export interface AssistantReference {
   game_id?: number | null;
 }
 
+/** One move of a walkable variation, with the board before and after it. */
+export interface AssistantLineStep {
+  san: string;
+  uci: string;
+  color: 'w' | 'b' | string;
+  fen_before: string;
+  fen_after: string;
+  comment?: string;
+  source?: 'played' | 'engine' | string;
+  ply?: number | null;
+}
+
 /** What the coach was asked to do, and whether a model stayed grounded. */
 export type CoachIntent =
-  'summary' | 'plan' | 'alternatives' | 'position' | 'explain' | 'patterns' | 'opening' | 'general';
+  | 'summary'
+  | 'plan'
+  | 'lesson'
+  | 'why'
+  | 'idea'
+  | 'alternatives'
+  | 'position'
+  | 'explain'
+  | 'patterns'
+  | 'opening'
+  | 'general';
 
 export type CoachMode = 'deterministic' | 'llm';
 
-/** The coach's grounded answer, its intent, and the moves it cites. */
+/** The coach's grounded answer, its intent, the moves it cites, and a board line. */
 export interface AssistantAnswerResponse {
   answer: string;
   intent: CoachIntent | string;
@@ -295,6 +324,8 @@ export interface AssistantAnswerResponse {
   provider: string;
   references: AssistantReference[];
   position_fen?: string;
+  line?: AssistantLineStep[];
+  line_title?: string;
 }
 
 /** One opening family's error tally across the player's reviewed games. */

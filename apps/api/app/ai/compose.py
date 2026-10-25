@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 import chess
@@ -30,6 +30,7 @@ from app.ai.longcontext.context import (
     san_for_uci,
     side_name,
 )
+from app.ai.longcontext.lines import LineStep, best_alt, line_from_alt
 from app.ai.longcontext.whatif import AltLine
 
 
@@ -38,6 +39,9 @@ class Intent(StrEnum):
 
     SUMMARY = "summary"  # how did the game go, overall
     PLAN = "plan"  # what is the best way to proceed here
+    LESSON = "lesson"  # show / walk me through a line on the board
+    WHY = "why"  # why is that better than what I played
+    IDEA = "idea"  # what is the idea/plan behind this move
     ALTERNATIVES = "alternatives"  # what other ways could this have gone
     POSITION = "position"  # what is on the board / where are the pieces
     EXPLAIN = "explain"  # why was this move a mistake
@@ -53,6 +57,8 @@ class Composed:
     answer: str
     references: list[Reference]
     position_fen: str
+    line: list[LineStep] = field(default_factory=list)
+    line_title: str = ""
 
 
 # Word order matters: earlier intents win when a question trips two of them, so
@@ -65,6 +71,31 @@ _INTENT_MARKERS: tuple[tuple[Intent, tuple[str, ...]], ...] = (
     (
         Intent.OPENING,
         ("opening", "theory", "eco", "variation", "book line", "gambit", "defense"),
+    ),
+    (
+        Intent.LESSON,
+        (
+            "show me",
+            "walk me",
+            "play it",
+            "play out",
+            "main line",
+            "the line",
+            "step through",
+            "go through",
+            "continue",
+            "keep going",
+            "after that",
+            "next moves",
+        ),
+    ),
+    (
+        Intent.WHY,
+        ("why is that better", "why better", "why this", "why not", "instead of", "rather than"),
+    ),
+    (
+        Intent.IDEA,
+        ("idea", "point of", "the point", "purpose", "behind", "goal", "what for"),
     ),
     (
         Intent.ALTERNATIVES,
@@ -144,6 +175,35 @@ def _best_move(fact: ReviewFact) -> str:
     return san_for_uci(fact.pre_fen, fact.best_uci) or fact.best_uci
 
 
+def _sections(*parts: str) -> str:
+    """Join non-empty answer sections into one multi-line coach message."""
+    return "\n".join(part for part in parts if part)
+
+
+def _render_line(line: Sequence[LineStep]) -> str:
+    """Space-join a walkable line's SANs for the prose (the board walks them)."""
+    return " ".join(step.san for step in line)
+
+
+def _line_and_title(
+    focus: ReviewFact | None,
+    facts: Sequence[ReviewFact],
+    lines: Sequence[AltLine],
+    *,
+    limit: int,
+) -> tuple[list[LineStep], str]:
+    """Materialise the best grounded line to walk from the focus, plus its title.
+
+    Prefers a live engine continuation and falls back to the recorded plies, so
+    there is always a truthful line the board can step through — never a guess.
+    """
+    if focus is None:
+        return [], ""
+    line = line_from_alt(focus.pre_fen, best_alt(lines), facts, focus.ply, limit=limit)
+    title = "The engine's line" if line and line[0].source == "engine" else "How the game went"
+    return line, title
+
+
 def _summary(focus: ReviewFact | None, facts: Sequence[ReviewFact], hero: str) -> str:
     if not facts:
         return "There is no analysed game to summarise yet."
@@ -162,39 +222,46 @@ def _summary(focus: ReviewFact | None, facts: Sequence[ReviewFact], hero: str) -
     )
 
 
-def _plan(focus: ReviewFact | None, facts: Sequence[ReviewFact], hero: str) -> str:
+def _plan(focus: ReviewFact | None, facts: Sequence[ReviewFact], hero: str, line_text: str) -> str:
     if focus is None:
         return _summary(focus, facts, hero)
     if focus.color == hero:
         best = _best_move(focus)
         if best and best != focus.san:
-            return (
-                f"On move {focus.ply} you played {focus.san}. The engine's line was {best} — "
-                f"that is the way to proceed; it left {eval_text(focus.eval_cp, focus.eval_mate)} "
-                f"for you versus {focus.centipawn_loss} cp less after your move."
+            return _sections(
+                f"Recommendation: play {best} instead of {focus.san} on move {focus.ply}.",
+                f"The idea: {focus.explanation or f'The engine ranks {best} strongest here.'}",
+                f"Why it is better: {focus.san} left you at {_hero_eval(focus, hero)}, "
+                f"{focus.centipawn_loss} cp below the best line.",
+                f"The line: {line_text}." if line_text else "",
             )
-        return (
-            f"{focus.san} (move {focus.ply}) already matched the engine's best line — keep the "
-            f"plan going; your position stands at {_hero_eval(focus, hero)}."
+        return _sections(
+            f"{focus.san} (move {focus.ply}) already matched the engine's best line — "
+            f"keep the plan going; your position stands at {_hero_eval(focus, hero)}.",
+            f"How it continued: {line_text}." if line_text else "",
         )
     # The cursor sits on an opponent ply: the best reply is the next own ply's engine move.
     for later in facts:
         if later.ply > focus.ply and later.color == hero:
-            return (
+            return _sections(
                 f"After {side_name(focus.color)}'s {focus.san}, the engine wanted {later.san} "
-                f"(move {later.ply}); you played it as {later.quality}. "
-                f"That reply left {_hero_eval(later, hero)} for you."
+                f"(move {later.ply}).",
+                f"You answered {later.san} as {later.quality}, leaving {_hero_eval(later, hero)}.",
+                f"The line: {line_text}." if line_text else "",
             )
     return f"Against {focus.san}, keep the position balanced — no own reply is recorded after it."
 
 
-def _alternatives(focus: ReviewFact | None, lines: Sequence[AltLine], hero: str) -> str:
+def _alternatives(
+    focus: ReviewFact | None, lines: Sequence[AltLine], hero: str, line_text: str
+) -> str:
     if focus is None:
         return "Pick a move on the board and I can show how else that position could have gone."
     if not lines:
-        return (
+        return _sections(
             f"On {focus.san} (move {focus.ply}) I have no live engine line to offer right now, "
-            f"so I won't guess one — the stored review is what I can speak from."
+            f"so I won't guess one — the stored review is what I can speak from.",
+            f"Here is how the game actually continued: {line_text}." if line_text else "",
         )
     rendered = "; ".join(
         (" ".join(line.pv_san))
@@ -205,9 +272,55 @@ def _alternatives(focus: ReviewFact | None, lines: Sequence[AltLine], hero: str)
         )
         for line in lines[:3]
     )
-    return (
+    return _sections(
         f"From the position before your {focus.san}, the engine's other tries for "
-        f"{side_name(hero)} were: {rendered}."
+        f"{side_name(hero)} were: {rendered}.",
+        f"The best of them to walk: {line_text}." if line_text else "",
+    )
+
+
+def _lesson(focus: ReviewFact | None, line_title: str, line_text: str) -> str:
+    if focus is None or not line_text:
+        return "Select a move on the board and I'll walk you through the best follow-up."
+    return _sections(
+        f"Let's walk {line_title.lower()} from {focus.san} on move {focus.ply}.",
+        f"The moves, in order: {line_text}.",
+        "Step through them one at a time on the board — every move is one that was "
+        "played, or (with a live engine) the engine's own best continuation.",
+    )
+
+
+def _why(focus: ReviewFact | None, facts: Sequence[ReviewFact], hero: str, line_text: str) -> str:
+    if focus is None:
+        return _summary(focus, facts, hero)
+    if focus.color == hero:
+        best = _best_move(focus)
+        if best and best != focus.san:
+            return _sections(
+                f"You played {focus.san}; the engine's {best} is better because it keeps you "
+                f"{focus.centipawn_loss} cp off the sharp end — your move left you at "
+                f"{_hero_eval(focus, hero)}.",
+                f"The idea: {focus.explanation or f'{best} holds the balance the engine wants.'}",
+                f"How it can go: {line_text}." if line_text else "",
+            )
+        return (
+            f"{focus.san} was already the engine's pick, so there is no better move to justify "
+            f"here — you were on the right plan."
+        )
+    return (
+        f"After {side_name(focus.color)}'s {focus.san}, the difference shows up in the reply — "
+        f"watch how the line on the board turns the position."
+    )
+
+
+def _idea(focus: ReviewFact | None, hero: str, line_text: str) -> str:
+    if focus is None:
+        return "Select a move and I'll explain the idea behind it."
+    note = focus.explanation or f"It was graded {focus.quality}."
+    return _sections(
+        f"The idea behind {focus.san} (move {focus.ply}): {note}",
+        f"It left the position at {_hero_eval(focus, hero)}.",
+        f"How the plan continued: {line_text}." if line_text else "",
     )
 
 
@@ -258,19 +371,44 @@ def compose(
     *,
     recall_block: str = "",
     game_id: int | None = None,
+    line_limit: int = 8,
 ) -> Composed:
     """Build a fully grounded answer from facts alone (no model involved)."""
+    # A few intents are meant to be *walked* on the board: give them a line, else
+    # they answer with prose only. Offline the line degrades to the recorded plies.
+    walkable = intent in (
+        Intent.PLAN,
+        Intent.ALTERNATIVES,
+        Intent.WHY,
+        Intent.LESSON,
+        Intent.IDEA,
+    )
+    if walkable:
+        line, line_title = _line_and_title(focus, facts, lines, limit=line_limit)
+    else:
+        line, line_title = [], ""
+    line_text = _render_line(line)
+
     if intent is Intent.PATTERNS or intent is Intent.OPENING:
         answer = _recall_or_empty(recall_block)
         refs = _refs([focus] if focus else [], game_id=game_id)
     elif intent is Intent.ALTERNATIVES:
-        answer = _alternatives(focus, lines, hero)
+        answer = _alternatives(focus, lines, hero, line_text)
+        refs = _refs([focus] if focus else [], game_id=game_id)
+    elif intent is Intent.LESSON:
+        answer = _lesson(focus, line_title, line_text)
+        refs = _refs([focus] if focus else [], game_id=game_id)
+    elif intent is Intent.WHY:
+        answer = _why(focus, facts, hero, line_text)
+        refs = _refs([focus] if focus else [], game_id=game_id)
+    elif intent is Intent.IDEA:
+        answer = _idea(focus, hero, line_text)
         refs = _refs([focus] if focus else [], game_id=game_id)
     elif intent is Intent.POSITION:
         answer = _position(focus, hero)
         refs = _refs([focus] if focus else [], game_id=game_id)
     elif intent is Intent.PLAN:
-        answer = _plan(focus, facts, hero)
+        answer = _plan(focus, facts, hero, line_text)
         refs = _refs(
             [f for f in facts if f.color == hero and f.quality in ("mistake", "blunder")][:2]
             + ([focus] if focus else []),
@@ -289,7 +427,13 @@ def compose(
     position = (
         position_fen_after(focus) if focus else (position_fen_after(facts[-1]) if facts else "")
     )
-    return Composed(answer=answer, references=refs, position_fen=position)
+    return Composed(
+        answer=answer,
+        references=refs,
+        position_fen=position,
+        line=line,
+        line_title=line_title,
+    )
 
 
 # SAN-shaped token, scanned case-insensitively: a piece move ([KQRBN] + optional
